@@ -35,7 +35,7 @@ export default createConfig({
       id: 97,
       rpc: process.env.PONDER_RPC_URL_97 || "https://data-seed-prebsc-1-s1.binance.org:8545",
       maxRequestsPerSecond: 3,
-      ethGetLogsBlockRange: 5000,
+      ethGetLogsBlockRange: 2000,
     },
   },
   contracts: {
@@ -55,8 +55,14 @@ export default createConfig({
     P2PExchange: {
       abi: P2PJSON.abi,
       chain: {
-        arbitrumSepolia: { address: ARB_P2P_ADDRESS },
-        bscTestnet: { address: BSC_P2P_ADDRESS },
+        arbitrumSepolia: {
+          address: ARB_P2P_ADDRESS,
+          startBlock: 322758932
+        },
+        bscTestnet: {
+          address: BSC_P2P_ADDRESS,
+          startBlock: 138881864
+        },
       }
     },
     // Dynamic Factory Contracts
