@@ -5,7 +5,7 @@
 **Database:** Neon PostgreSQL (Shared with `forgecapita-api`)  
 **Networks:** Arbitrum Sepolia (Chain ID `421614`) & BSC Testnet (Chain ID `97`)  
 **Port:** 42069  
-**Last Updated:** Current Sprint  
+**Last Updated:** 2026-10-28 (plan revised; code unchanged since the previous report)  
 
 ---
 
@@ -83,11 +83,20 @@ The core indexing pipeline, multi-chain configuration, start-block pinning, stak
 
 ---
 
-## 4. Summary Checklist of Next Steps
+## 4. Additional data-model findings (2026-10-28)
 
-1. [ ] Add `revenue_record` table to `ponder.schema.ts`.
-2. [ ] Implement `RevenueRouter:PaymentReceived` event handler in `src/index.ts`.
-3. [ ] Fetch dynamic `fundingGoal` from the escrow contract in `ProjectLaunched` handler.
-4. [ ] Implement handlers for `DeveloperTransferAccepted`, `ProjectCancelled`, and `EmergencyShutdownTriggered`.
-5. [ ] `[USER-ACTION]` Provide dedicated BSC Testnet RPC URL (NodeReal/QuickNode) in `.env.local`.
-6. [ ] `[USER-ACTION]` Confirm BSC contract addresses in `.env.local`.
+- **No `chainId` on any table.** Ids collide across chains and rows cannot be filtered by chain.
+- **`investor` is keyed by wallet only**, so stakes and yield from different projects are merged.
+- **No vote, trade, launch-provenance or developer-change history**; raw `/sql/*` is exposed publicly.
+- **Production schema:** `ponder dev` uses `public` (the user confirmed `project` and `startup_profiles` both sit there); `ponder start` needs an explicit schema, and a views schema is recommended for the API.
+
+## 5. Plan revision (2026-10-28)
+
+The backlog was rewritten (`backlog-indexer.md`). Contracts v2 will be redeployed (gasless relayer, gas ledger, freeze, roles) and the indexer re-synced once, so the data-model fixes (IDX-01 to IDX-09) go first, v2 event handling (IDX-10) follows the new ABIs, and new addresses / start blocks (IDX-21) are provided after deployment.
+
+## 6. Summary Checklist of Next Steps
+
+1. [ ] IDX-01 to IDX-09 data-model correctness (chainId, per-project positions, votes, richer project, lifecycle handlers, `fundingGoal`, launch provenance, `RevenueRouter`).
+2. [ ] `[USER-ACTION]` IDX-20 dedicated BSC Testnet RPC; IDX-22 production schema check.
+3. [ ] IDX-30 to IDX-33 lock down `/sql`, GraphQL limits, stats endpoints, health.
+4. [ ] After contracts v2: IDX-10 v2 events, IDX-21 new addresses and start blocks, IDX-23 ABI sync, full re-sync.
