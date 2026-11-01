@@ -1,0 +1,418 @@
+{
+  "_format": "hh3-artifact-1",
+  "contractName": "ForgeCapitaRegistry",
+  "sourceName": "contracts/ForgeCapitaRegistry.sol",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "admin",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidAction",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotGuardian",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotPendingGuardian",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotPendingTreasury",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotTreasury",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ValueAboveLimit",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ZeroAddress",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "oldGuardian",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newGuardian",
+          "type": "address"
+        }
+      ],
+      "name": "GuardianChanged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "currentGuardian",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "proposed",
+          "type": "address"
+        }
+      ],
+      "name": "GuardianProposed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint8",
+          "name": "action",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "L1SurchargeSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "MaxCostPerActionSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "relayer",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "allowed",
+          "type": "bool"
+        }
+      ],
+      "name": "RelayerSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "oldTreasury",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newTreasury",
+          "type": "address"
+        }
+      ],
+      "name": "TreasuryChanged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "currentTreasury",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "proposed",
+          "type": "address"
+        }
+      ],
+      "name": "TreasuryProposed",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "ACTION_COUNT",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_COST_PER_ACTION_LIMIT",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_L1_SURCHARGE_LIMIT",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "acceptGuardian",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "acceptTreasury",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "guardian",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "isRelayer",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint8",
+          "name": "action",
+          "type": "uint8"
+        }
+      ],
+      "name": "l1Surcharge",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "maxCostPerAction",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pendingGuardian",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pendingTreasury",
+      "outputs": [
+        {
+          "internalType": "address payable",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newGuardian",
+          "type": "address"
+        }
+      ],
+      "name": "proposeGuardian",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newTreasury",
+          "type": "address"
+        }
+      ],
+      "name": "proposeTreasury",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint8",
+          "name": "action",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "setL1Surcharge",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "setMaxCostPerAction",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "relayer",
+          "type": "address"
+        },
+        {
+          "internalType": "bool",
+          "name": "allowed",
+          "type": "bool"
+        }
+      ],
+      "name": "setRelayer",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "treasury",
+      "outputs": [
+        {
+          "internalType": "address payable",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x608034609057601f61070238819003918201601f19168301916001600160401b03831184841017609457808492602094604052833981010312609057516001600160a01b0381169081900360905780156081575f80546001600160a01b0319908116831790915560018054909116909117905560405161065990816100a98239f35b63d92e233d60e01b5f5260045ffd5b5f80fd5b634e487b7160e01b5f52604160045260245ffdfe6080806040526004361015610012575f80fd5b5f3560e01c908163033c4d28146105c1575080632ed6b75d146105995780633a373e2e14610513578063452a9320146104eb578063541d5548146104ae5780635d4192571461049357806361d027b31461046c578063762c31ba14610444578063a5f31d61146103c6578063b673311c1461028b578063bcad7d711461037c578063c304555f14610306578063c5fc4e1314610290578063df9b63dd1461028b578063e49d2a301461020b578063ecd8dc3a1461016e5763f110ed67146100d7575f80fd5b3461016a57602036600319011261016a576100f06105eb565b5f546001600160a01b0316903382900361015b576001600160a01b031690811561014c57600280546001600160a01b031916831790557f9745945724579b0c42c077e39e88287155952650b2dbb9fde023042588ca24575f80a3005b63d92e233d60e01b5f5260045ffd5b63b90cdbb160e01b5f5260045ffd5b5f80fd5b3461016a57604036600319011261016a576101876105eb565b6024359081151580920361016a576001546001600160a01b031633036101fc576001600160a01b031690811561014c5760207fee42947bc760229eeff964017ac68eddb00ba98b0defcd90a1bc85a5afceb05791835f526005825260405f2060ff1981541660ff8316179055604051908152a2005b6377b6878160e11b5f5260045ffd5b3461016a575f36600319011261016a576002546001600160a01b038116903382900361027c575f80546001600160a01b0319808216851783559092166002556001600160a01b03909116907f8c3aa5f43a388513435861bf27dfad7829cd248696fed367c62d441f629544969080a3005b630627014560e41b5f5260045ffd5b610601565b3461016a57602036600319011261016a57600154600435906001600160a01b031633036101fc57670de0b6b3a764000081116102f7576020817f4bda9d7bf4dd1ed3eb0de77761878aa33a973555bb8166fc64592e2c1280649192600455604051908152a1005b63121336e960e21b5f5260045ffd5b3461016a57602036600319011261016a5761031f6105eb565b6001546001600160a01b031690338290036101fc576001600160a01b031690811561014c57600380546001600160a01b031916831790557ff1284770232ce131bb37044a576145e0b24fd6b24f5710624b11255d5ac61a815f80a3005b3461016a57602036600319011261016a5760ff6103976105db565b1660048110156103b7575f526006602052602060405f2054604051908152f35b634a7f394f60e01b5f5260045ffd5b3461016a575f36600319011261016a576003546001600160a01b038116903382900361043557600180546001600160a01b0319808216851790925591166003556001600160a01b03167fa14fc14d8620a708a896fd11392a235647d99385500a295f0d7da2a258b2e9675f80a3005b638a04d22960e01b5f5260045ffd5b3461016a575f36600319011261016a576003546040516001600160a01b039091168152602090f35b3461016a575f36600319011261016a575f546040516001600160a01b039091168152602090f35b3461016a575f36600319011261016a57602060405160048152f35b3461016a57602036600319011261016a576001600160a01b036104cf6105eb565b165f526005602052602060ff60405f2054166040519015158152f35b3461016a575f36600319011261016a576001546040516001600160a01b039091168152602090f35b3461016a57604036600319011261016a5761052c6105db565b60015460243591906001600160a01b031633036101fc5760ff169060048210156103b757670de0b6b3a764000081116102f75760207fac2a9bca6a8c8d4772e5f273c3ebcb6c2e6c3eff1a2f842ffd5b9850ba99d47691835f52600682528060405f2055604051908152a2005b3461016a575f36600319011261016a576002546040516001600160a01b039091168152602090f35b3461016a575f36600319011261016a576020906004548152f35b6004359060ff8216820361016a57565b600435906001600160a01b038216820361016a57565b3461016a575f36600319011261016a576020604051670de0b6b3a76400008152f3fea2646970667358221220d73a5e9a25849c736a3f83543957c5ed90a2d20e3783995ea76770000bdc3e4964736f6c634300081c0033",
+  "deployedBytecode": "0x6080806040526004361015610012575f80fd5b5f3560e01c908163033c4d28146105c1575080632ed6b75d146105995780633a373e2e14610513578063452a9320146104eb578063541d5548146104ae5780635d4192571461049357806361d027b31461046c578063762c31ba14610444578063a5f31d61146103c6578063b673311c1461028b578063bcad7d711461037c578063c304555f14610306578063c5fc4e1314610290578063df9b63dd1461028b578063e49d2a301461020b578063ecd8dc3a1461016e5763f110ed67146100d7575f80fd5b3461016a57602036600319011261016a576100f06105eb565b5f546001600160a01b0316903382900361015b576001600160a01b031690811561014c57600280546001600160a01b031916831790557f9745945724579b0c42c077e39e88287155952650b2dbb9fde023042588ca24575f80a3005b63d92e233d60e01b5f5260045ffd5b63b90cdbb160e01b5f5260045ffd5b5f80fd5b3461016a57604036600319011261016a576101876105eb565b6024359081151580920361016a576001546001600160a01b031633036101fc576001600160a01b031690811561014c5760207fee42947bc760229eeff964017ac68eddb00ba98b0defcd90a1bc85a5afceb05791835f526005825260405f2060ff1981541660ff8316179055604051908152a2005b6377b6878160e11b5f5260045ffd5b3461016a575f36600319011261016a576002546001600160a01b038116903382900361027c575f80546001600160a01b0319808216851783559092166002556001600160a01b03909116907f8c3aa5f43a388513435861bf27dfad7829cd248696fed367c62d441f629544969080a3005b630627014560e41b5f5260045ffd5b610601565b3461016a57602036600319011261016a57600154600435906001600160a01b031633036101fc57670de0b6b3a764000081116102f7576020817f4bda9d7bf4dd1ed3eb0de77761878aa33a973555bb8166fc64592e2c1280649192600455604051908152a1005b63121336e960e21b5f5260045ffd5b3461016a57602036600319011261016a5761031f6105eb565b6001546001600160a01b031690338290036101fc576001600160a01b031690811561014c57600380546001600160a01b031916831790557ff1284770232ce131bb37044a576145e0b24fd6b24f5710624b11255d5ac61a815f80a3005b3461016a57602036600319011261016a5760ff6103976105db565b1660048110156103b7575f526006602052602060405f2054604051908152f35b634a7f394f60e01b5f5260045ffd5b3461016a575f36600319011261016a576003546001600160a01b038116903382900361043557600180546001600160a01b0319808216851790925591166003556001600160a01b03167fa14fc14d8620a708a896fd11392a235647d99385500a295f0d7da2a258b2e9675f80a3005b638a04d22960e01b5f5260045ffd5b3461016a575f36600319011261016a576003546040516001600160a01b039091168152602090f35b3461016a575f36600319011261016a575f546040516001600160a01b039091168152602090f35b3461016a575f36600319011261016a57602060405160048152f35b3461016a57602036600319011261016a576001600160a01b036104cf6105eb565b165f526005602052602060ff60405f2054166040519015158152f35b3461016a575f36600319011261016a576001546040516001600160a01b039091168152602090f35b3461016a57604036600319011261016a5761052c6105db565b60015460243591906001600160a01b031633036101fc5760ff169060048210156103b757670de0b6b3a764000081116102f75760207fac2a9bca6a8c8d4772e5f273c3ebcb6c2e6c3eff1a2f842ffd5b9850ba99d47691835f52600682528060405f2055604051908152a2005b3461016a575f36600319011261016a576002546040516001600160a01b039091168152602090f35b3461016a575f36600319011261016a576020906004548152f35b6004359060ff8216820361016a57565b600435906001600160a01b038216820361016a57565b3461016a575f36600319011261016a576020604051670de0b6b3a76400008152f3fea2646970667358221220d73a5e9a25849c736a3f83543957c5ed90a2d20e3783995ea76770000bdc3e4964736f6c634300081c0033",
+  "linkReferences": {},
+  "deployedLinkReferences": {},
+  "immutableReferences": {},
+  "inputSourceName": "project/contracts/ForgeCapitaRegistry.sol",
+  "buildInfoId": "solc-0_8_28-01f4c3ad3d74c7b9cbde098caca7de0601e3a4a1"
+}

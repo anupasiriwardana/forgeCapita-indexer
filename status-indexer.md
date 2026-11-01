@@ -7,7 +7,9 @@
 **Port:** 42069  
 **Last Updated:** 2026-11-01  
 
-**Current focus:** Step: WS-02.2 (IDX-01, IDX-02) | State: awaiting-review | Updated: 2026-11-01.
+**Current focus:** Step: WS-05.2 (IDX-10 part 1, IDX-21 code part, IDX-23, IDX-50, IDX-51, IDX-52) | State: awaiting-review | Updated: 2026-11-01.
+
+**WS-05.2 result (tracker-verified 2026-11-01; no `ponder dev/start`, DB or RPC run):** all 7 v2 ABIs (Factory, Escrow, Token, Distributor, Router, P2P, Registry) synced and identical to the compiled contract artifacts; typed `as const` via generated `abis/<Name>Abi.ts` (`npm run abis`); `npm run typecheck` and `npm run lint` exit 0; the 12 existing handlers (`src/index.ts` unchanged) compile against v2 ABIs; v1 `I*.json` ABIs deleted. `ponder.config.ts`: v2 start blocks 324727776 (Arbitrum Sepolia) / 140034644 (BSC Testnet), env-overridable; Registry is a plain contract on both chains; schema guard throws unless the schema (`--schema` or `DATABASE_SCHEMA`) is `ponder`. Still open: new v2 events are unhandled (WS-05.2b, WS-02.3); `ProjectLaunched` still sets `fundingGoal` 0n (IDX-04); `tokensHeld`/`tokensClaimed` stay 0n. Guard notes: it also protects `ponder start`/`db` (config is loaded for every command); `ponder codegen` needs `DATABASE_SCHEMA=ponder` (documented in README, minor). Not verified at runtime: argv is preserved in the config-loading process. USER follow-up: the Neon `ponder` schema was dropped/empty (user-reported), so a fresh sync is expected and nothing needs migrating; before the first `ponder dev`, edit the real indexer env file (WS-05.1): v2 addresses incl. `ARB_REGISTRY_ADDRESS`/`BSC_REGISTRY_ADDRESS`, `DATABASE_SCHEMA=ponder`, RPC URLs.
 
 **RE-PLAN 2026-11-01 (user decision, tracker docs-only; proposal awaiting approval, nothing started):** the indexer is rebuilt v2-first; v1 code, ABIs, addresses and data are discarded. Next steps in order: WS-05.2 (v2 ABIs `as const` incl. Registry, v2 start blocks 324727776 / 140034644 in `ponder.config.ts`, existing handlers compile, IDX-51/52), WS-05.1 [USER-ACTION] (user edits the indexer env), WS-05.2b (gas ledger, freeze, registry tables), WS-02.3 (votes, v2 project/milestone state, real `fundingGoal`), then WS-02.4 to WS-02.8. Obsolete items in this report: section 3.E (identical factory addresses are expected, v2 uses deterministic identical addresses), state `DEADLOCKED` (removed in v2), section 3.D/3.C describe v1 and are superseded by IDX-04/IDX-07/IDX-10.
 
@@ -106,13 +108,14 @@ The backlog was rewritten (`backlog-indexer.md`). Contracts v2 will be redeploye
 ## 6. Summary Checklist of Next Steps
 
 1. [ ] IDX-01 to IDX-09 data-model correctness: [x] IDX-01 chainId and composite ids, [x] IDX-02 per-project positions/deposits (2026-11-01); [ ] votes, richer project, lifecycle handlers, `fundingGoal`, launch provenance, `RevenueRouter` (IDX-03 to IDX-09).
-1a. [ ] IDX-50 ABI `as const` typing fix: DEFERRED into IDX-10 / WS-05.2 (user decision 2026-11-01); IDX-51 `npm run lint` script, IDX-52 guard against `ponder dev` without `--schema`.
+1a. [x] IDX-50 ABI `as const` typing, IDX-51 `npm run lint`, IDX-52 schema guard, IDX-23 ABI sync, IDX-10 part 1, IDX-21 code part (WS-05.2, 2026-11-01, awaiting review). [ ] IDX-21 env part (user, WS-05.1), [ ] IDX-10 part 2 (WS-05.2b).
 2. [x] `[USER-ACTION]` IDX-20 BSC Testnet RPC (public endpoint, accepted); IDX-22 production schema check (schema `ponder`) - user-reported 2026-11-01.
 3. [ ] IDX-30 to IDX-33 lock down `/sql`, GraphQL limits, stats endpoints, health.
-4. [ ] After contracts v2: IDX-10 v2 events, IDX-21 new addresses and start blocks, IDX-23 ABI sync, full re-sync.
+4. [ ] IDX-10 part 2 (v2 event tables, WS-05.2b), IDX-21 env part (user), then full re-sync (fresh `ponder` schema).
 
 ## Change log
 
+2026-11-01  WS-05.2  IDX-23, IDX-50, IDX-51, IDX-52 ticked; IDX-10 part 1 and IDX-21 code part done (parts 2 / env stay open). 7 v2 ABIs synced and typed `as const`, v2 start blocks, Registry registered, schema guard, lint script.  - verified by: `npm run typecheck` exit 0, `npm run lint` exit 0; script comparing each ABI JSON with `forgecapita-contracts/artifacts` (identical for all 7) and generated `.ts` with JSON; read `ponder.config.ts`, `scripts/generate-abis.mjs`, `package.json`, `.env.example`, README; grep: no `@ts-ignore`/`any` in `src/`, no `I*.json` leftovers, 12 `ponder.on` names present; no other repo shows changes; not verified: `ponder codegen`/`dev`/`start`, DB, RPC (dev reports codegen ran offline)
 2026-11-01  re-plan  Indexer made v2-first: WS-05.2 pulled first (IDX-10 part 1, IDX-21 code part, IDX-23, IDX-50 absorbed, IDX-51/52 folded in), WS-05.1 split into an indexer-only env [USER-ACTION], new WS-05.2b (IDX-10 part 2), WS-02.3 to WS-02.8 re-tagged v2/version-independent; found start blocks and ProjectLaunched are hardcoded in `ponder.config.ts` (v1 values).  - verified by: docs-only edit; read `ponder.config.ts`, `ForgeCapitaFactory.sol`, event declarations in `contracts/`; no source touched
 
 2026-11-01  docs  IDX-50 deferred into IDX-10 / WS-05.2 per user decision; added v1-only warning for WS-02.3+ handlers.  - verified by: docs-only edit, no source touched

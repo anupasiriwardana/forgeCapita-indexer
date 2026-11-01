@@ -1,24 +1,56 @@
 import { createConfig, factory } from "ponder";
-import { parseAbiItem } from "viem";
+import type { Address } from "viem";
 
-// Import your ABI files
-import FactoryJSON from "./abis/ForgeCapitaFactory.json";
-import EscrowJSON from "./abis/MilestoneEscrow.json";
-import TokenJSON from "./abis/ProjectToken.json";
-import DistributorJSON from "./abis/DividendDistributor.json";
-import RouterJSON from "./abis/RevenueRouter.json";
-import P2PJSON from "./abis/P2PExchange.json";
+import { ForgeCapitaFactoryAbi } from "./abis/ForgeCapitaFactoryAbi";
+import { MilestoneEscrowAbi } from "./abis/MilestoneEscrowAbi";
+import { ProjectTokenAbi } from "./abis/ProjectTokenAbi";
+import { DividendDistributorAbi } from "./abis/DividendDistributorAbi";
+import { RevenueRouterAbi } from "./abis/RevenueRouterAbi";
+import { P2PExchangeAbi } from "./abis/P2PExchangeAbi";
+import { ForgeCapitaRegistryAbi } from "./abis/ForgeCapitaRegistryAbi";
 
-// Environment variables for Arbitrum Sepolia
-const ARB_FACTORY_ADDRESS = process.env.ARB_FACTORY_ADDRESS as `0x${string}`;
-const ARB_P2P_ADDRESS = process.env.ARB_P2P_ADDRESS as `0x${string}`;
+// Schema guard: the indexer must only ever write into the "ponder" schema,
+// never the API's default "public" schema. Ponder resolves the schema as
+// `--schema` CLI flag, else DATABASE_SCHEMA (dev falls back to "public").
+// This file is loaded in the Ponder process, so process.argv is the CLI.
+const REQUIRED_SCHEMA = "ponder";
 
-// Environment variables for BSC Testnet
-const BSC_FACTORY_ADDRESS = process.env.BSC_FACTORY_ADDRESS as `0x${string}`;
-const BSC_P2P_ADDRESS = process.env.BSC_P2P_ADDRESS as `0x${string}`;
+function cliSchema(argv: string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--schema") return argv[i + 1];
+    if (arg?.startsWith("--schema=")) return arg.slice("--schema=".length);
+  }
+  return undefined;
+}
 
-// Pre-parse the event signature used for the factory clones
-const PROJECT_LAUNCHED_EVENT = parseAbiItem("event ProjectLaunched(address indexed developer, address projectToken, address milestoneEscrow, address dividendDistributor, address revenueRouter)");
+const effectiveSchema = cliSchema(process.argv) ?? process.env.DATABASE_SCHEMA;
+if (effectiveSchema !== REQUIRED_SCHEMA) {
+  throw new Error(
+    `Refusing to start: indexer schema must be "${REQUIRED_SCHEMA}" (set DATABASE_SCHEMA=${REQUIRED_SCHEMA} or pass --schema ${REQUIRED_SCHEMA}).`,
+  );
+}
+
+// v2 deployment start blocks (first block of the v2 contracts on each chain).
+const ARB_START_BLOCK = Number(process.env.ARB_START_BLOCK ?? 324727776);
+const BSC_START_BLOCK = Number(process.env.BSC_START_BLOCK ?? 140034644);
+
+// Contract addresses (v2) from the environment.
+const ARB_FACTORY_ADDRESS = process.env.ARB_FACTORY_ADDRESS as Address;
+const ARB_P2P_ADDRESS = process.env.ARB_P2P_ADDRESS as Address;
+const ARB_REGISTRY_ADDRESS = process.env.ARB_REGISTRY_ADDRESS as Address;
+const BSC_FACTORY_ADDRESS = process.env.BSC_FACTORY_ADDRESS as Address;
+const BSC_P2P_ADDRESS = process.env.BSC_P2P_ADDRESS as Address;
+const BSC_REGISTRY_ADDRESS = process.env.BSC_REGISTRY_ADDRESS as Address;
+
+// ProjectLaunched(address indexed developer, address projectToken, address milestoneEscrow,
+// address dividendDistributor, address revenueRouter), taken from the typed v2 Factory ABI.
+const PROJECT_LAUNCHED_EVENT = ForgeCapitaFactoryAbi.find(
+  (item) => item.type === "event" && item.name === "ProjectLaunched",
+);
+if (!PROJECT_LAUNCHED_EVENT || PROJECT_LAUNCHED_EVENT.type !== "event") {
+  throw new Error("ProjectLaunched event missing from ForgeCapitaFactory ABI");
+}
 
 export default createConfig({
   database: {
@@ -40,34 +72,47 @@ export default createConfig({
   },
   contracts: {
     ForgeCapitaFactory: {
-      abi: FactoryJSON.abi,
+      abi: ForgeCapitaFactoryAbi,
       chain: {
         arbitrumSepolia: {
           address: ARB_FACTORY_ADDRESS,
-          startBlock: 322758932
+          startBlock: ARB_START_BLOCK
         },
         bscTestnet: {
           address: BSC_FACTORY_ADDRESS,
-          startBlock: 138881864
+          startBlock: BSC_START_BLOCK
         },
       }
     },
     P2PExchange: {
-      abi: P2PJSON.abi,
+      abi: P2PExchangeAbi,
       chain: {
         arbitrumSepolia: {
           address: ARB_P2P_ADDRESS,
-          startBlock: 322758932
+          startBlock: ARB_START_BLOCK
         },
         bscTestnet: {
           address: BSC_P2P_ADDRESS,
-          startBlock: 138881864
+          startBlock: BSC_START_BLOCK
+        },
+      }
+    },
+    ForgeCapitaRegistry: {
+      abi: ForgeCapitaRegistryAbi,
+      chain: {
+        arbitrumSepolia: {
+          address: ARB_REGISTRY_ADDRESS,
+          startBlock: ARB_START_BLOCK,
+        },
+        bscTestnet: {
+          address: BSC_REGISTRY_ADDRESS,
+          startBlock: BSC_START_BLOCK,
         },
       }
     },
     // Dynamic Factory Contracts
     MilestoneEscrow: {
-      abi: EscrowJSON.abi,
+      abi: MilestoneEscrowAbi,
       chain: {
         arbitrumSepolia: {
           address: factory({
@@ -86,7 +131,7 @@ export default createConfig({
       }
     },
     ProjectToken: {
-      abi: TokenJSON.abi,
+      abi: ProjectTokenAbi,
       chain: {
         arbitrumSepolia: {
           address: factory({
@@ -105,7 +150,7 @@ export default createConfig({
       }
     },
     DividendDistributor: {
-      abi: DistributorJSON.abi,
+      abi: DividendDistributorAbi,
       chain: {
         arbitrumSepolia: {
           address: factory({
@@ -124,7 +169,7 @@ export default createConfig({
       }
     },
     RevenueRouter: {
-      abi: RouterJSON.abi,
+      abi: RevenueRouterAbi,
       chain: {
         arbitrumSepolia: {
           address: factory({

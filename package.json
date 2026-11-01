@@ -8,7 +8,8 @@
     "start": "ponder start --schema ponder",
     "db": "ponder db",
     "codegen": "ponder codegen",
-    "lint": "eslint .",
+    "abis": "node scripts/generate-abis.mjs",
+    "lint": "eslint . --ext .ts",
     "typecheck": "tsc"
   },
   "dependencies": {
