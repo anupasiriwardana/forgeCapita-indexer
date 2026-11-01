@@ -45,9 +45,11 @@ Item IDs (`IDX-xx`) are referenced from `ROADMAP.md`. Plan revised 2026-10-28.
 
 ## Phase 2: Configuration & chains
 
-- [ ] **IDX-20 `[USER-ACTION]`** Dedicated BSC Testnet RPC (NodeReal MegaNode free tier or QuickNode) as `PONDER_RPC_URL_97`; the public node times out and rate-limits during backfills.
+- [x] **IDX-20 `[USER-ACTION]`** Dedicated BSC Testnet RPC (NodeReal MegaNode free tier or QuickNode) as `PONDER_RPC_URL_97`; the public node times out and rate-limits during backfills.
+  - USER-REPORTED done 2026-11-01 (not verified by Claude, no `.env` access). CAVEAT: the user chose the free PUBLIC endpoint `https://bsc-testnet-rpc.publicnode.com`, not a dedicated one; accepted by the user. Risk: rate limits / reliability during backfill. The v2 backfill range is small (start block 140034644). Revisit with NodeReal/QuickNode if throttled (IDX-24 fallback also helps).
 - [ ] **IDX-21 `[USER-ACTION]`** Per-chain addresses and start blocks for v2 (`ARB_FACTORY_ADDRESS`, `BSC_FACTORY_ADDRESS`, `ARB_P2P_ADDRESS`, `BSC_P2P_ADDRESS`, start blocks) from `docs/deployments-v2.md` once CON-04.2 is done. The v1 `.env.local` pointed both chains at one factory address; confirm they differ or are deterministic.
-- [ ] **IDX-22 `[USER-ACTION]`** Verify Neon connectivity and schema privileges for a dedicated production schema (not `public`).
+- [x] **IDX-22 `[USER-ACTION]`** Verify Neon connectivity and schema privileges for a dedicated production schema (not `public`).
+  - USER-REPORTED done 2026-11-01 (not verified by Claude): Neon schema `ponder` created; create/insert/select/drop test succeeded; DATABASE_URL starts with postgresql://; indexer not started. The indexer and API share one connection string (API tables in the default schema, Ponder in `ponder`). TO DO in WS-02.2+: the indexer config must use schema `ponder` (DATABASE_SCHEMA / ponder config) and this must be checked so it never writes into the API's schema. Related: IDX-25.
 - [ ] **IDX-23** Sync v2 ABIs with `node .claude/scripts/sync-abi.js indexer <Contract>` for every changed contract; remove the unused v1 ABI imports.
 - [ ] **IDX-24** Multi-transport RPC with fallback (`fallback([...])`) and retry / backoff for transient failures; log RPC errors with the chain id.
 - [ ] **IDX-25** Production run configuration: `ponder start --schema <name>` with a views schema for the API (`ponder_live`; confirm the exact flag for the installed Ponder version), documented runbook for full re-index, zero-downtime schema swap.

@@ -7,6 +7,10 @@
 **Port:** 42069  
 **Last Updated:** 2026-10-28 (plan revised; code unchanged since the previous report)  
 
+**Current focus:** Step: WS-02.1 | State: idle (done, user-reported) | Updated: 2026-11-01. Next: WS-02.2 (IDX-01, IDX-02), not started.
+
+**Notes from WS-02.1 (user-reported, not verified by Claude):** BSC RPC is the free PUBLIC endpoint (publicnode), accepted by the user; watch for throttling during backfill, revisit with NodeReal/QuickNode if needed. Ponder schema on Neon is `ponder` (not `ponder_v2`); the API uses the same connection string with its tables in the default schema. The indexer config must use schema `ponder` and WS-02.2+ must check it never writes into the API's schema. The indexer has not been started (still v1 code/ABIs/addresses).
+
 ---
 
 ## 1. Executive Summary
@@ -51,7 +55,7 @@ The core indexing pipeline, multi-chain configuration, start-block pinning, stak
 - **Problem:**
   - The public RPC endpoint `https://bsc-testnet-rpc.publicnode.com` frequently times out or responds with `LimitExceededRpcError` during backfills.
 - **Impact:** The indexer container can fail to sync or fall out of lockstep with incoming blocks on BSC Testnet.
-- **Remedy Required `[USER-ACTION]`:** The user must register for a dedicated RPC endpoint (NodeReal MegaNode free tier or BNB QuickNode) and set `PONDER_RPC_URL_97` in `.env.local`.
+- **Update 2026-11-01 (user-reported):** IDX-20 closed with the free public publicnode endpoint kept as `PONDER_RPC_URL_97` (accepted risk; v2 backfill from block 140034644 is small). Revisit with NodeReal/QuickNode if throttled.
 
 ### C. `fundingGoal` Defaulting to `0n`
 - **Status:** **DATA ACCURACY DEFICIT** ⚠️
@@ -97,6 +101,10 @@ The backlog was rewritten (`backlog-indexer.md`). Contracts v2 will be redeploye
 ## 6. Summary Checklist of Next Steps
 
 1. [ ] IDX-01 to IDX-09 data-model correctness (chainId, per-project positions, votes, richer project, lifecycle handlers, `fundingGoal`, launch provenance, `RevenueRouter`).
-2. [ ] `[USER-ACTION]` IDX-20 dedicated BSC Testnet RPC; IDX-22 production schema check.
+2. [x] `[USER-ACTION]` IDX-20 BSC Testnet RPC (public endpoint, accepted); IDX-22 production schema check (schema `ponder`) - user-reported 2026-11-01.
 3. [ ] IDX-30 to IDX-33 lock down `/sql`, GraphQL limits, stats endpoints, health.
 4. [ ] After contracts v2: IDX-10 v2 events, IDX-21 new addresses and start blocks, IDX-23 ABI sync, full re-sync.
+
+## Change log
+
+2026-11-01  WS-02.1  IDX-20 and IDX-22 ticked; BLOCKED section removed. IDX-20 uses the free public publicnode BSC RPC (accepted by user, risk noted); IDX-22 Neon schema is `ponder`, indexer config must use it (check in WS-02.2+).  - verified by: user report only, not verified (Claude has no env-file access)
