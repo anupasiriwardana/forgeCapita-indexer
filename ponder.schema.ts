@@ -15,7 +15,23 @@ export const project = onchainTable(
     fundingGoal: t.bigint().notNull(),
     totalRaised: t.bigint().notNull(),
     isFundingActive: t.boolean().notNull(),
-    isDeadlocked: t.boolean().notNull(),
+    // Event-driven lifecycle: FUNDING | ACTIVE | COMPLETED | FAILED | CANCELLED | SHUTDOWN.
+    // Time-only transitions (close-grace expiry) emit no event; see src/projectState.ts.
+    state: t.text().notNull(),
+    fundingDeadline: t.bigint().notNull(),
+    closeGrace: t.bigint().notNull(),
+    refundWindow: t.bigint().notNull(),
+    votingPeriod: t.bigint().notNull(), // read once at launch
+    fundingClosedAt: t.bigint(),
+    platformFee: t.bigint(),
+    cancelledAt: t.bigint(), // MilestoneFailed and ProjectCancelled both set it on-chain
+    failedMilestoneIndex: t.integer(),
+    isInvalidated: t.boolean().notNull().default(false),
+    shutdownAt: t.bigint(),
+    currentMilestoneIndex: t.integer().notNull().default(0),
+    totalStaked: t.bigint().notNull().default(0n),
+    tokenName: t.text().notNull(),
+    tokenSymbol: t.text().notNull(),
     createdAt: t.bigint().notNull(),
   }),
   (table) => ({
@@ -50,10 +66,47 @@ export const milestone = onchainTable(
     isExecuted: t.boolean().notNull(),
     yesVotes: t.bigint().notNull(),
     noVotes: t.bigint().notNull(),
+    unlockPercentage: t.integer().notNull(),
+    description: t.text().notNull(),
+    votingStartTime: t.bigint().notNull(),
+    frozenAtVoteStart: t.bigint().notNull(),
+    // Tracks freeze events; the contract's votingEndTime(i) stays authoritative.
+    votingEndTime: t.bigint().notNull(),
+    executedAt: t.bigint(),
+    amountReleased: t.bigint(),
+    tokensVested: t.bigint(),
+    gasDebtRecouped: t.bigint(),
+    isFailed: t.boolean().notNull().default(false),
+    failedAt: t.bigint(),
   }),
   (table) => ({
     chainIdIdx: index().on(table.chainId),
     projectIdx: index().on(table.projectId),
+  }),
+);
+
+// 2b. Votes (one row per Voted event, including relayed voteBySig)
+// milestone.yesVotes / noVotes equal the sum of vote.weight per milestone and support.
+export const vote = onchainTable(
+  "vote",
+  (t) => ({
+    id: t.text().primaryKey(), // eventId(chainId, txHash, logIndex)
+    chainId: t.integer().notNull(),
+    projectId: t.text().notNull(), // project.id
+    milestoneIndex: t.integer().notNull(),
+    voter: t.hex().notNull(),
+    support: t.boolean().notNull(),
+    weight: t.bigint().notNull(),
+    txFrom: t.hex().notNull(), // the relayer for voteBySig, else the voter
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+    projectIdx: index().on(table.projectId),
+    voterIdx: index().on(table.voter),
+    projectMilestoneIdx: index().on(table.projectId, table.milestoneIndex),
   }),
 );
 

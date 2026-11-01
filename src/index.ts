@@ -1,4 +1,5 @@
 import { ponder } from "ponder:registry";
+import type { Context } from "ponder:registry";
 import {
     project,
     distributorMap,
@@ -13,6 +14,7 @@ import {
     roleChange,
     relayerAllowlist,
     registrySetting,
+    vote,
 } from "../ponder.schema";
 import {
     projectId,
@@ -25,6 +27,30 @@ import {
     tokenKey,
     relayerKey,
 } from "./ids";
+import { nextLifecycleState, projectedVotingEnd } from "./projectState";
+import type { LifecycleEvent, LifecycleState } from "./projectState";
+import { MilestoneEscrowAbi } from "../abis/MilestoneEscrowAbi";
+import { ProjectTokenAbi } from "../abis/ProjectTokenAbi";
+
+// project.state is a text column; narrow it before handing it to the pure helper.
+function toLifecycleState(value: string): LifecycleState {
+    switch (value) {
+        case "FUNDING":
+        case "ACTIVE":
+        case "COMPLETED":
+        case "FAILED":
+        case "CANCELLED":
+        case "SHUTDOWN":
+            return value;
+        default:
+            throw new Error(`Unknown project state: ${value}`);
+    }
+}
+
+// All lifecycle logic lives in the pure helper; handlers only apply its result.
+function advance(current: string, lifecycleEvent: LifecycleEvent): LifecycleState {
+    return nextLifecycleState(toLifecycleState(current), lifecycleEvent);
+}
 
 // ============================================================================
 // 1. FACTORY EVENTS (Startups)
@@ -32,6 +58,29 @@ import {
 ponder.on("ForgeCapitaFactory:ProjectLaunched", async ({ event, context }) => {
     const chainId = context.chain.id;
     const id = projectId(chainId, event.args.milestoneEscrow);
+
+    // The clone is initialised in the launch tx, so state reads at this block are valid.
+    // Errors propagate so Ponder retries; no fallback values are written.
+    const escrowRead = {
+        abi: MilestoneEscrowAbi,
+        address: event.args.milestoneEscrow,
+        blockNumber: event.block.number,
+    } as const;
+    const tokenRead = {
+        abi: ProjectTokenAbi,
+        address: event.args.projectToken,
+        blockNumber: event.block.number,
+    } as const;
+    const [fundingGoal, fundingDeadline, closeGrace, refundWindow, votingPeriod, tokenName, tokenSymbol] =
+        await Promise.all([
+            context.client.readContract({ ...escrowRead, functionName: "fundingGoal" }),
+            context.client.readContract({ ...escrowRead, functionName: "fundingDeadline" }),
+            context.client.readContract({ ...escrowRead, functionName: "CLOSE_GRACE" }),
+            context.client.readContract({ ...escrowRead, functionName: "REFUND_WINDOW" }),
+            context.client.readContract({ ...escrowRead, functionName: "VOTING_PERIOD" }),
+            context.client.readContract({ ...tokenRead, functionName: "name" }),
+            context.client.readContract({ ...tokenRead, functionName: "symbol" }),
+        ]);
 
     await context.db
         .insert(project)
@@ -42,10 +91,16 @@ ponder.on("ForgeCapitaFactory:ProjectLaunched", async ({ event, context }) => {
             tokenAddress: event.args.projectToken,
             distributorAddress: event.args.dividendDistributor,
             developer: event.args.developer,
-            fundingGoal: 0n, // We can pull this dynamically if added to the event, or default it
+            fundingGoal,
             totalRaised: 0n,
             isFundingActive: true,
-            isDeadlocked: false,
+            state: "FUNDING",
+            fundingDeadline,
+            closeGrace,
+            refundWindow,
+            votingPeriod,
+            tokenName,
+            tokenSymbol,
             createdAt: event.block.timestamp,
         })
         .onConflictDoNothing();
@@ -125,44 +180,190 @@ ponder.on("MilestoneEscrow:RefundClaimed", async ({ event, context }) => {
 ponder.on("MilestoneEscrow:VotingStarted", async ({ event, context }) => {
     const chainId = context.chain.id;
     const escrow = event.log.address;
+    const index = event.args.milestoneIndex;
 
+    const read = {
+        abi: MilestoneEscrowAbi,
+        address: escrow,
+        blockNumber: event.block.number,
+    } as const;
+    const [milestoneTuple, frozenAtVoteStart, votingEndTime] = await Promise.all([
+        context.client.readContract({ ...read, functionName: "milestones", args: [index] }),
+        context.client.readContract({ ...read, functionName: "frozenAtVoteStart", args: [index] }),
+        context.client.readContract({ ...read, functionName: "votingEndTime", args: [index] }),
+    ]);
+    const [description, unlockPercentage] = milestoneTuple;
+
+    // onConflictDoNothing: a replay must never reset the vote tallies.
     await context.db
         .insert(milestone)
         .values({
-            id: milestoneId(chainId, escrow, event.args.milestoneIndex),
+            id: milestoneId(chainId, escrow, index),
             chainId,
             projectId: projectId(chainId, escrow),
-            milestoneIndex: Number(event.args.milestoneIndex),
+            milestoneIndex: Number(index),
             isVotingOpen: true,
             isExecuted: false,
             yesVotes: 0n,
             noVotes: 0n,
+            unlockPercentage: Number(unlockPercentage),
+            description,
+            votingStartTime: event.block.timestamp,
+            frozenAtVoteStart,
+            votingEndTime,
         })
         .onConflictDoNothing();
 });
 
 ponder.on("MilestoneEscrow:Voted", async ({ event, context }) => {
-    const id = milestoneId(context.chain.id, event.log.address, event.args.milestoneIndex);
+    const chainId = context.chain.id;
+    const escrow = event.log.address;
 
+    // The vote row is always written, so a vote is never lost even if the milestone row is missing.
+    await context.db
+        .insert(vote)
+        .values({
+            id: eventId(chainId, event.transaction.hash, event.log.logIndex),
+            chainId,
+            projectId: projectId(chainId, escrow),
+            milestoneIndex: Number(event.args.milestoneIndex),
+            voter: event.args.voter,
+            support: event.args.support,
+            weight: event.args.weight,
+            txFrom: event.transaction.from,
+            blockNumber: event.block.number,
+            timestamp: event.block.timestamp,
+            txHash: event.transaction.hash,
+        })
+        .onConflictDoNothing();
+
+    // Additive tally relies on Ponder's indexed-once guarantee. By construction
+    // milestone.yesVotes/noVotes equal the sum of vote.weight per milestone and support.
+    const id = milestoneId(chainId, escrow, event.args.milestoneIndex);
     const existing = await context.db.find(milestone, { id });
-    if (!existing) return;
-
-    await context.db.update(milestone, { id }).set((row) => ({
-        yesVotes: event.args.support ? row.yesVotes + event.args.weight : row.yesVotes,
-        noVotes: !event.args.support ? row.noVotes + event.args.weight : row.noVotes,
-    }));
+    if (existing) {
+        await context.db.update(milestone, { id }).set((row) => ({
+            yesVotes: event.args.support ? row.yesVotes + event.args.weight : row.yesVotes,
+            noVotes: !event.args.support ? row.noVotes + event.args.weight : row.noVotes,
+        }));
+    }
 });
 
 ponder.on("MilestoneEscrow:MilestoneExecuted", async ({ event, context }) => {
-    const id = milestoneId(context.chain.id, event.log.address, event.args.milestoneIndex);
+    const chainId = context.chain.id;
+    const escrow = event.log.address;
+    const id = milestoneId(chainId, escrow, event.args.milestoneIndex);
 
+    // gas_debt is written by GasDebtRecovered only; gasDebtRecouped is stored here for display.
     const existing = await context.db.find(milestone, { id });
-    if (!existing) return;
+    if (existing) {
+        await context.db.update(milestone, { id }).set({
+            isVotingOpen: false,
+            isExecuted: true,
+            executedAt: event.block.timestamp,
+            amountReleased: event.args.amountReleased,
+            tokensVested: event.args.tokensVested,
+            gasDebtRecouped: event.args.gasDebtRecouped,
+        });
+    }
 
-    await context.db.update(milestone, { id }).set({
-        isVotingOpen: false,
-        isExecuted: true,
+    const pid = projectId(chainId, escrow);
+    const proj = await context.db.find(project, { id: pid });
+    if (proj) {
+        await context.db.update(project, { id: pid }).set({
+            currentMilestoneIndex: Number(event.args.milestoneIndex) + 1,
+        });
+    }
+});
+
+ponder.on("MilestoneEscrow:PlatformFeeCollected", async ({ event, context }) => {
+    const pid = projectId(context.chain.id, event.log.address);
+    const proj = await context.db.find(project, { id: pid });
+    if (!proj) return;
+
+    // closeFundingAndStart overwrites totalRaised with the contract balance (no FundingClosed event).
+    const totalRaised = await context.client.readContract({
+        abi: MilestoneEscrowAbi,
+        address: event.log.address,
+        functionName: "totalRaised",
+        blockNumber: event.block.number,
     });
+
+    await context.db.update(project, { id: pid }).set({
+        isFundingActive: false,
+        state: advance(proj.state, "FUNDING_CLOSED"),
+        fundingClosedAt: event.block.timestamp,
+        platformFee: event.args.amount,
+        totalRaised,
+    });
+});
+
+ponder.on("MilestoneEscrow:ProjectCompleted", async ({ event, context }) => {
+    const pid = projectId(context.chain.id, event.log.address);
+    const proj = await context.db.find(project, { id: pid });
+    if (!proj) return;
+
+    await context.db.update(project, { id: pid }).set({
+        state: advance(proj.state, "COMPLETED"),
+    });
+});
+
+ponder.on("MilestoneEscrow:MilestoneFailed", async ({ event, context }) => {
+    const chainId = context.chain.id;
+    const escrow = event.log.address;
+
+    const mid = milestoneId(chainId, escrow, event.args.index);
+    const existingMilestone = await context.db.find(milestone, { id: mid });
+    if (existingMilestone) {
+        await context.db.update(milestone, { id: mid }).set({
+            isFailed: true,
+            isVotingOpen: false,
+            failedAt: event.block.timestamp,
+        });
+    }
+
+    const pid = projectId(chainId, escrow);
+    const proj = await context.db.find(project, { id: pid });
+    if (!proj) return;
+
+    await context.db.update(project, { id: pid }).set({
+        state: advance(proj.state, "MILESTONE_FAILED"),
+        failedMilestoneIndex: Number(event.args.index),
+        cancelledAt: event.block.timestamp, // the contract sets cancelledAt on failure too
+    });
+});
+
+ponder.on("MilestoneEscrow:ProjectCancelled", async ({ event, context }) => {
+    const pid = projectId(context.chain.id, event.log.address);
+    const proj = await context.db.find(project, { id: pid });
+    if (!proj) return;
+
+    await context.db.update(project, { id: pid }).set({
+        state: advance(proj.state, "CANCELLED"),
+        cancelledAt: event.block.timestamp,
+    });
+});
+
+ponder.on("MilestoneEscrow:EmergencyShutdownTriggered", async ({ event, context }) => {
+    const pid = projectId(context.chain.id, event.log.address);
+    const proj = await context.db.find(project, { id: pid });
+    if (!proj) return;
+
+    // A shut-down completed project stays COMPLETED (enforced by nextLifecycleState).
+    await context.db.update(project, { id: pid }).set({
+        isInvalidated: true,
+        shutdownAt: event.block.timestamp,
+        state: advance(proj.state, "SHUTDOWN"),
+    });
+});
+
+ponder.on("ProjectToken:TokenInvalidated", async ({ context, event }) => {
+    const mapping = await context.db.find(tokenMap, {
+        id: tokenKey(context.chain.id, event.log.address),
+    });
+    if (!mapping) return;
+
+    await context.db.update(project, { id: mapping.projectId }).set({ isInvalidated: true });
 });
 
 // ============================================================================
@@ -189,6 +390,11 @@ ponder.on("DividendDistributor:Staked", async ({ event, context }) => {
         .onConflictDoUpdate((row) => ({
             stakedBalance: row.stakedBalance + event.args.amount,
         }));
+
+    // Additive counter relies on Ponder's indexed-once guarantee.
+    await context.db
+        .update(project, { id: mapping.projectId })
+        .set((row) => ({ totalStaked: row.totalStaked + event.args.amount }));
 });
 
 ponder.on("DividendDistributor:Withdrawn", async ({ event, context }) => {
@@ -214,6 +420,12 @@ ponder.on("DividendDistributor:Withdrawn", async ({ event, context }) => {
                     ? row.stakedBalance - event.args.amount
                     : 0n,
         }));
+
+    // Additive counter relies on Ponder's indexed-once guarantee; clamped at 0n.
+    await context.db.update(project, { id: mapping.projectId }).set((row) => ({
+        totalStaked:
+            row.totalStaked >= event.args.amount ? row.totalStaked - event.args.amount : 0n,
+    }));
 });
 
 ponder.on("DividendDistributor:YieldClaimed", async ({ event, context }) => {
@@ -348,8 +560,34 @@ ponder.on("MilestoneEscrow:GasDebtWrittenOff", async ({ event, context }) => {
         .onConflictDoNothing();
 });
 
+// Recomputes votingEndTime of the open milestone without RPC. The stored value tracks
+// freeze events only; the contract's votingEndTime(i) stays authoritative.
+async function refreshOpenVotingEnd(
+    context: Context<"MilestoneEscrow:MilestonesFrozen" | "MilestoneEscrow:MilestonesUnfrozen">,
+    escrow: `0x${string}`,
+    totalFrozen: bigint,
+): Promise<void> {
+    const chainId = context.chain.id;
+    const proj = await context.db.find(project, { id: projectId(chainId, escrow) });
+    if (!proj) return;
+
+    const id = milestoneId(chainId, escrow, proj.currentMilestoneIndex);
+    const open = await context.db.find(milestone, { id });
+    if (!open || !open.isVotingOpen) return;
+
+    await context.db.update(milestone, { id }).set({
+        votingEndTime: projectedVotingEnd(
+            open.votingStartTime,
+            proj.votingPeriod,
+            totalFrozen,
+            open.frozenAtVoteStart,
+        ),
+    });
+}
+
 ponder.on("MilestoneEscrow:MilestonesFrozen", async ({ event, context }) => {
     const chainId = context.chain.id;
+    await refreshOpenVotingEnd(context, event.log.address, event.args.totalFrozen);
 
     await context.db
         .insert(milestoneFreeze)
@@ -371,6 +609,7 @@ ponder.on("MilestoneEscrow:MilestonesFrozen", async ({ event, context }) => {
 
 ponder.on("MilestoneEscrow:MilestonesUnfrozen", async ({ event, context }) => {
     const chainId = context.chain.id;
+    await refreshOpenVotingEnd(context, event.log.address, event.args.totalFrozen);
 
     await context.db
         .insert(milestoneFreeze)
