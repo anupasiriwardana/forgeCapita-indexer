@@ -3,6 +3,7 @@ import schema from "ponder:schema";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { client, graphql } from "ponder";
+import { statsRoutes } from "./stats";
 
 const app = new Hono();
 
@@ -38,5 +39,7 @@ app.post("/graphql", graphqlBodyLimit);
 
 app.use("/", graphql({ db, schema }, GRAPHQL_OPTIONS));
 app.use("/graphql", graphql({ db, schema }, GRAPHQL_OPTIONS));
+
+app.route("/", statsRoutes);
 
 export default app;

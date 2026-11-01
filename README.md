@@ -28,6 +28,18 @@ npm run abis
 - `/ready`: 200 after historical sync completes, otherwise 503. Use as the readiness signal for load balancers, not for Docker liveness.
 - `/status`: JSON with the latest indexed block per chain. `/metrics`: Prometheus metrics.
 
+## Stats REST endpoints (src/api/stats.ts)
+
+Read-only GET routes mounted after the GraphQL middleware. Not to be confused with the built-in `/status` (latest indexed block per chain): these are `/stats/...` and business aggregates. Ponder's global CORS applies. All amounts are decimal strings (wei or native units of the chain); every row-level item carries `chainId`; addresses are lowercase. Invalid input returns `400 {"error": "..."}`; an unknown project returns `404` on the revenue and gas-ledger routes; failures return a generic `500` (detail is only logged).
+
+- `:chainId` must be one of the configured chains (421614, 97); `:address` must be a 0x + 40 hex address.
+- `limit` below 1, or non-numeric/negative `limit` or `offset`, is a 400; values above the cap are clamped (`offset` cap 10000).
+
+1. `GET /stats/overview?chainId=` returns `{ generatedAt, chains: [...] }` with one entry per chain (zeros when empty), never summed across chains because the native currencies differ (ETH on Arbitrum Sepolia, BNB on BSC Testnet). Each chain has `projectsByState`, `activeVotes`, `totalRaised`, `platformFeesCollected` (from `FEE_COLLECTED` lifecycle rows), `revenue`, `sponsoredGas` (with `byAction` 0 to 3), `gasDebt` and `p2p`. Cached in-process for 15 seconds per `chainId` filter (concurrent misses share one query, errors are never cached) and sent with `Cache-Control: public, max-age=15`. This is the only route with that header.
+2. `GET /projects/:chainId/:address/revenue` returns `totals` (zeros if no payment yet) and up to 120 `months` (newest first).
+3. `GET /investors/:address/positions?chainId=&limit=&offset=` merges deposit and staking rows per project (missing values are `"0"`). `limit` default 50, max 100.
+4. `GET /projects/:chainId/:address/gas-ledger?limit=&offset=&action=` returns `summary` (`gasSpent` is the newest row's cumulative value, not a sum), `sponsored` rows newest first (`limit` default 50, max 200, optional `action` 0 to 3) and the latest 100 `debt` rows.
+
 ## RPC endpoints and failover
 
 Each chain takes `PONDER_RPC_URL_<chainId>` plus an optional `PONDER_RPC_URL_<chainId>_FALLBACK`, deduplicated into an array; with neither set the public default is used. Invalid URLs fail fast at startup with a message that does not print the value. Ponder load-balances across the array per host, retries failed requests up to 9 times with exponential backoff (125 ms base), and deactivates a rate-limited (429) or timed-out host temporarily with backoff reactivation. A startup diagnostic only warns if the endpoint reports a different chain id than configured.
