@@ -115,3 +115,136 @@ export const p2pListing = onchainTable(
     tokenIdx: index().on(table.tokenAddress),
   }),
 );
+
+// 6. Sponsored gas (one row per relayer-paid action; gasSpent is cumulative per project)
+export const sponsoredGas = onchainTable(
+  "sponsored_gas",
+  (t) => ({
+    id: t.text().primaryKey(), // eventId(chainId, txHash, logIndex)
+    chainId: t.integer().notNull(),
+    projectId: t.text().notNull(), // project.id
+    relayer: t.hex().notNull(),
+    account: t.hex().notNull(),
+    action: t.integer().notNull(), // 0 claim, 1 stake, 2 vote, 3 execute
+    cost: t.bigint().notNull(),
+    gasSpent: t.bigint().notNull(),
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+    projectIdx: index().on(table.projectId),
+    accountIdx: index().on(table.account),
+    relayerIdx: index().on(table.relayer),
+  }),
+);
+
+// 7. Gas debt recovery / write-off history per project
+export const gasDebt = onchainTable(
+  "gas_debt",
+  (t) => ({
+    id: t.text().primaryKey(), // eventId(chainId, txHash, logIndex)
+    chainId: t.integer().notNull(),
+    projectId: t.text().notNull(), // project.id
+    kind: t.text().notNull(), // 'recovered' | 'written_off'
+    milestoneIndex: t.integer(), // null for write-offs
+    amount: t.bigint().notNull(),
+    outstanding: t.bigint(), // null for write-offs
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+    projectIdx: index().on(table.projectId),
+  }),
+);
+
+// 8. Milestone freeze / unfreeze history per project
+export const milestoneFreeze = onchainTable(
+  "milestone_freeze",
+  (t) => ({
+    id: t.text().primaryKey(), // eventId(chainId, txHash, logIndex)
+    chainId: t.integer().notNull(),
+    projectId: t.text().notNull(), // project.id
+    kind: t.text().notNull(), // 'frozen' | 'unfrozen'
+    until: t.bigint(), // null for unfrozen
+    totalFrozen: t.bigint().notNull(),
+    // The event carries no actor, so this is the tx sender (not necessarily the Guardian).
+    triggeredBy: t.hex().notNull(),
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+    projectIdx: index().on(table.projectId),
+  }),
+);
+
+// 9. Registry role changes (treasury / guardian), history
+export const roleChange = onchainTable(
+  "role_change",
+  (t) => ({
+    id: t.text().primaryKey(), // eventId(chainId, txHash, logIndex)
+    chainId: t.integer().notNull(),
+    role: t.text().notNull(), // 'treasury' | 'guardian'
+    kind: t.text().notNull(), // 'proposed' | 'changed'
+    previousAddress: t.hex().notNull(), // proposed: current holder
+    newAddress: t.hex().notNull(), // proposed: the proposed address
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+  }),
+);
+
+// 10. Relayer allowlist (current state)
+export const relayerAllowlist = onchainTable(
+  "relayer_allowlist",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${relayer}`
+    chainId: t.integer().notNull(),
+    relayer: t.hex().notNull(),
+    allowed: t.boolean().notNull(),
+    updatedBlock: t.bigint().notNull(),
+    updatedTxHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+  }),
+);
+
+// 11. Registry settings (current state)
+export const registrySetting = onchainTable(
+  "registry_setting",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:maxCostPerAction` | `${chainId}:l1Surcharge:${action}`
+    chainId: t.integer().notNull(),
+    setting: t.text().notNull(), // 'maxCostPerAction' | 'l1Surcharge'
+    action: t.integer(), // only for l1Surcharge
+    value: t.bigint().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+  }),
+);
+
+// 12. Resolves a project token (Transfer events carry no project) to its project.
+export const tokenMap = onchainTable(
+  "token_map",
+  (t) => ({
+    id: t.text().primaryKey(), // `${chainId}:${tokenAddress}`
+    chainId: t.integer().notNull(),
+    projectId: t.text().notNull(), // project.id
+    escrowAddress: t.hex().notNull(),
+    distributorAddress: t.hex().notNull(),
+    developer: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+  }),
+);

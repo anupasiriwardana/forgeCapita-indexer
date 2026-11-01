@@ -28,3 +28,11 @@ export function listingId(chainId: number, id: bigint | number): string {
 export function eventId(chainId: number, txHash: string, logIndex: number): string {
   return `${chainId}:${txHash.toLowerCase()}:${logIndex}`;
 }
+
+export function tokenKey(chainId: number, token: string): string {
+  return `${chainId}:${token.toLowerCase()}`;
+}
+
+export function relayerKey(chainId: number, relayer: string): string {
+  return `${chainId}:${relayer.toLowerCase()}`;
+}
