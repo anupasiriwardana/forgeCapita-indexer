@@ -52,8 +52,21 @@ function rpcList(name: string, defaultUrl: string): string[] {
 }
 
 // v2 deployment start blocks (first block of the v2 contracts on each chain).
-const ARB_START_BLOCK = Number(process.env.ARB_START_BLOCK ?? 324727776);
-const BSC_START_BLOCK = Number(process.env.BSC_START_BLOCK ?? 140034644);
+// An empty value (for example `ARB_START_BLOCK=` copied into the env file) counts as unset, because
+// Number("") is 0 and would make Ponder backfill the whole chain from genesis. A set value must be a
+// positive integer, otherwise startup fails (the value is not printed).
+function startBlockFromEnv(name: string, defaultBlock: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return defaultBlock;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer block number (value hidden).`);
+  }
+  return parsed;
+}
+
+const ARB_START_BLOCK = startBlockFromEnv("ARB_START_BLOCK", 324727776);
+const BSC_START_BLOCK = startBlockFromEnv("BSC_START_BLOCK", 140034644);
 
 // Contract addresses (v2) from the environment.
 const ARB_FACTORY_ADDRESS = process.env.ARB_FACTORY_ADDRESS as Address;
@@ -140,6 +153,7 @@ export default createConfig({
             event: PROJECT_LAUNCHED_EVENT,
             parameter: "milestoneEscrow",
           }),
+          startBlock: ARB_START_BLOCK,
         },
         bscTestnet: {
           address: factory({
@@ -147,6 +161,7 @@ export default createConfig({
             event: PROJECT_LAUNCHED_EVENT,
             parameter: "milestoneEscrow",
           }),
+          startBlock: BSC_START_BLOCK,
         },
       }
     },
@@ -159,6 +174,7 @@ export default createConfig({
             event: PROJECT_LAUNCHED_EVENT,
             parameter: "projectToken",
           }),
+          startBlock: ARB_START_BLOCK,
         },
         bscTestnet: {
           address: factory({
@@ -166,6 +182,7 @@ export default createConfig({
             event: PROJECT_LAUNCHED_EVENT,
             parameter: "projectToken",
           }),
+          startBlock: BSC_START_BLOCK,
         },
       }
     },
@@ -178,6 +195,7 @@ export default createConfig({
             event: PROJECT_LAUNCHED_EVENT,
             parameter: "dividendDistributor",
           }),
+          startBlock: ARB_START_BLOCK,
         },
         bscTestnet: {
           address: factory({
@@ -185,6 +203,7 @@ export default createConfig({
             event: PROJECT_LAUNCHED_EVENT,
             parameter: "dividendDistributor",
           }),
+          startBlock: BSC_START_BLOCK,
         },
       }
     },
@@ -197,6 +216,7 @@ export default createConfig({
             event: PROJECT_LAUNCHED_EVENT,
             parameter: "revenueRouter",
           }),
+          startBlock: ARB_START_BLOCK,
         },
         bscTestnet: {
           address: factory({
@@ -204,6 +224,7 @@ export default createConfig({
             event: PROJECT_LAUNCHED_EVENT,
             parameter: "revenueRouter",
           }),
+          startBlock: BSC_START_BLOCK,
         },
       }
     },
