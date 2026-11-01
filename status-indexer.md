@@ -5,9 +5,15 @@
 **Database:** Neon PostgreSQL (Shared with `forgecapita-api`)  
 **Networks:** Arbitrum Sepolia (Chain ID `421614`) & BSC Testnet (Chain ID `97`)  
 **Port:** 42069  
-**Last Updated:** 2026-10-28 (plan revised; code unchanged since the previous report)  
+**Last Updated:** 2026-11-01  
 
-**Current focus:** Step: WS-02.1 | State: idle (done, user-reported) | Updated: 2026-11-01. Next: WS-02.2 (IDX-01, IDX-02), not started.
+**Current focus:** Step: WS-02.2 (IDX-01, IDX-02) | State: awaiting-review | Updated: 2026-11-01.
+
+**RE-PLAN 2026-11-01 (user decision, tracker docs-only; proposal awaiting approval, nothing started):** the indexer is rebuilt v2-first; v1 code, ABIs, addresses and data are discarded. Next steps in order: WS-05.2 (v2 ABIs `as const` incl. Registry, v2 start blocks 324727776 / 140034644 in `ponder.config.ts`, existing handlers compile, IDX-51/52), WS-05.1 [USER-ACTION] (user edits the indexer env), WS-05.2b (gas ledger, freeze, registry tables), WS-02.3 (votes, v2 project/milestone state, real `fundingGoal`), then WS-02.4 to WS-02.8. Obsolete items in this report: section 3.E (identical factory addresses are expected, v2 uses deterministic identical addresses), state `DEADLOCKED` (removed in v2), section 3.D/3.C describe v1 and are superseded by IDX-04/IDX-07/IDX-10.
+
+**Notes from WS-02.2 (tracker-verified by reading code, tsc and eslint; no DB, RPC or `ponder dev/start` run):** Schema now has `chainId` and composite text ids (`src/ids.ts`) on project, milestone, p2p_listing, position, deposit and the new distributor_map; `investor` removed; handlers use `context.chain.id`; `RefundClaimed` handler added. `package.json` `dev`/`start` pass `--schema ponder` (installed Ponder 0.18.x; CLI flag beats `DATABASE_SCHEMA`). New `.env.example` (placeholders). Open caveats: (1) `npm run typecheck` shows 71 errors (6 in `ponder.config.ts` TS2322, 65 in `src/index.ts` TS2339/TS2345 because event names resolve to `never`); root cause is the unchanged `ponder.config.ts` (ABI JSON not `as const`), so the handlers are NOT type-checked; backlog IDX-50. (2) `npm run lint` script broken (IDX-51); `npx eslint . --ext .ts` passes. (3) Running `npx ponder dev` directly (without `--schema`) would use `public`; IDX-52. (4) `tokensHeld`/`tokensClaimed` stay 0 until v2 ABIs. (5) Replay verified only at the WS-05 re-sync (IDX-41). User follow-up: copy `.env.example` values into the real env file yourself (Claude does not touch it); stale indexer tables in `public` were already dropped by you (user-reported).
+
+**Decision 2026-11-01 (user):** IDX-50 is not fixed now; folded into WS-05.2 / IDX-10 (type the v2 ABIs `as const` when copying). Handlers therefore remain un-type-checked until then. Heads-up: WS-02.3+ handler work (IDX-03 votes, IDX-04 fundingGoal, IDX-05, etc.) is written against v1 events and will be partly rewritten for v2 at WS-05.2; the user may want to review which WS-02 items are v1-only and consider pulling the ABI sync forward (step order unchanged).
 
 **Notes from WS-02.1 (user-reported, not verified by Claude):** BSC RPC is the free PUBLIC endpoint (publicnode), accepted by the user; watch for throttling during backfill, revisit with NodeReal/QuickNode if needed. Ponder schema on Neon is `ponder` (not `ponder_v2`); the API uses the same connection string with its tables in the default schema. The indexer config must use schema `ponder` and WS-02.2+ must check it never writes into the API's schema. The indexer has not been started (still v1 code/ABIs/addresses).
 
@@ -89,8 +95,7 @@ The core indexing pipeline, multi-chain configuration, start-block pinning, stak
 
 ## 4. Additional data-model findings (2026-10-28)
 
-- **No `chainId` on any table.** Ids collide across chains and rows cannot be filtered by chain.
-- **`investor` is keyed by wallet only**, so stakes and yield from different projects are merged.
+- ~~No `chainId` on any table~~ and ~~`investor` keyed by wallet only~~: FIXED in WS-02.2 (2026-11-01), see Current focus notes.
 - **No vote, trade, launch-provenance or developer-change history**; raw `/sql/*` is exposed publicly.
 - **Production schema:** `ponder dev` uses `public` (the user confirmed `project` and `startup_profiles` both sit there); `ponder start` needs an explicit schema, and a views schema is recommended for the API.
 
@@ -100,11 +105,18 @@ The backlog was rewritten (`backlog-indexer.md`). Contracts v2 will be redeploye
 
 ## 6. Summary Checklist of Next Steps
 
-1. [ ] IDX-01 to IDX-09 data-model correctness (chainId, per-project positions, votes, richer project, lifecycle handlers, `fundingGoal`, launch provenance, `RevenueRouter`).
+1. [ ] IDX-01 to IDX-09 data-model correctness: [x] IDX-01 chainId and composite ids, [x] IDX-02 per-project positions/deposits (2026-11-01); [ ] votes, richer project, lifecycle handlers, `fundingGoal`, launch provenance, `RevenueRouter` (IDX-03 to IDX-09).
+1a. [ ] IDX-50 ABI `as const` typing fix: DEFERRED into IDX-10 / WS-05.2 (user decision 2026-11-01); IDX-51 `npm run lint` script, IDX-52 guard against `ponder dev` without `--schema`.
 2. [x] `[USER-ACTION]` IDX-20 BSC Testnet RPC (public endpoint, accepted); IDX-22 production schema check (schema `ponder`) - user-reported 2026-11-01.
 3. [ ] IDX-30 to IDX-33 lock down `/sql`, GraphQL limits, stats endpoints, health.
 4. [ ] After contracts v2: IDX-10 v2 events, IDX-21 new addresses and start blocks, IDX-23 ABI sync, full re-sync.
 
 ## Change log
+
+2026-11-01  re-plan  Indexer made v2-first: WS-05.2 pulled first (IDX-10 part 1, IDX-21 code part, IDX-23, IDX-50 absorbed, IDX-51/52 folded in), WS-05.1 split into an indexer-only env [USER-ACTION], new WS-05.2b (IDX-10 part 2), WS-02.3 to WS-02.8 re-tagged v2/version-independent; found start blocks and ProjectLaunched are hardcoded in `ponder.config.ts` (v1 values).  - verified by: docs-only edit; read `ponder.config.ts`, `ForgeCapitaFactory.sol`, event declarations in `contracts/`; no source touched
+
+2026-11-01  docs  IDX-50 deferred into IDX-10 / WS-05.2 per user decision; added v1-only warning for WS-02.3+ handlers.  - verified by: docs-only edit, no source touched
+
+2026-11-01  WS-02.2  IDX-01, IDX-02 ticked with caveats; added IDX-50 (ABI typing), IDX-51 (lint script), IDX-52 (schema guard).  - verified by: reading ponder.schema.ts, src/ids.ts, src/index.ts, package.json, .env.example; `npx eslint . --ext .ts` clean; `npx tsc --noEmit` 71 errors (6 config + 65 handlers), config file unchanged vs HEAD per git status so errors predate the step (a HEAD-copy comparison was inconclusive because Ponder's virtual types resolve the real repo config); `npm run lint` fails as claimed; no leftover `investor` table usage; not verified: DB run, `ponder dev/start`, `ponder codegen`
 
 2026-11-01  WS-02.1  IDX-20 and IDX-22 ticked; BLOCKED section removed. IDX-20 uses the free public publicnode BSC RPC (accepted by user, risk noted); IDX-22 Neon schema is `ponder`, indexer config must use it (check in WS-02.2+).  - verified by: user report only, not verified (Claude has no env-file access)
