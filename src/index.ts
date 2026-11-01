@@ -15,6 +15,9 @@ import {
     relayerAllowlist,
     registrySetting,
     vote,
+    developerChange,
+    projectLifecycleEvent,
+    projectLaunch,
 } from "../ponder.schema";
 import {
     projectId,
@@ -124,6 +127,26 @@ ponder.on("ForgeCapitaFactory:ProjectLaunched", async ({ event, context }) => {
             escrowAddress: event.args.milestoneEscrow,
             distributorAddress: event.args.dividendDistributor,
             developer: event.args.developer,
+        })
+        .onConflictDoNothing();
+
+    // Provenance only: no call traces, so a contract caller's origin is not guessed.
+    await context.db
+        .insert(projectLaunch)
+        .values({
+            id,
+            chainId,
+            factoryAddress: event.log.address,
+            launcher: event.args.developer,
+            txFrom: event.transaction.from,
+            txHash: event.transaction.hash,
+            blockNumber: event.block.number,
+            timestamp: event.block.timestamp,
+            logIndex: event.log.logIndex,
+            tokenAddress: event.args.projectToken,
+            escrowAddress: event.args.milestoneEscrow,
+            distributorAddress: event.args.dividendDistributor,
+            routerAddress: event.args.revenueRouter,
         })
         .onConflictDoNothing();
 });
@@ -289,13 +312,31 @@ ponder.on("MilestoneEscrow:PlatformFeeCollected", async ({ event, context }) => 
         blockNumber: event.block.number,
     });
 
+    const stateAfter = advance(proj.state, "FUNDING_CLOSED");
     await context.db.update(project, { id: pid }).set({
         isFundingActive: false,
-        state: advance(proj.state, "FUNDING_CLOSED"),
+        state: stateAfter,
         fundingClosedAt: event.block.timestamp,
         platformFee: event.args.amount,
         totalRaised,
     });
+
+    await context.db
+        .insert(projectLifecycleEvent)
+        .values({
+            id: eventId(context.chain.id, event.transaction.hash, event.log.logIndex),
+            chainId: context.chain.id,
+            projectId: pid,
+            kind: "FEE_COLLECTED",
+            feeAmount: event.args.amount,
+            raisedAtClose: totalRaised,
+            stateAfter,
+            txFrom: event.transaction.from,
+            blockNumber: event.block.number,
+            timestamp: event.block.timestamp,
+            txHash: event.transaction.hash,
+        })
+        .onConflictDoNothing();
 });
 
 ponder.on("MilestoneEscrow:ProjectCompleted", async ({ event, context }) => {
@@ -303,9 +344,23 @@ ponder.on("MilestoneEscrow:ProjectCompleted", async ({ event, context }) => {
     const proj = await context.db.find(project, { id: pid });
     if (!proj) return;
 
-    await context.db.update(project, { id: pid }).set({
-        state: advance(proj.state, "COMPLETED"),
-    });
+    const stateAfter = advance(proj.state, "COMPLETED");
+    await context.db.update(project, { id: pid }).set({ state: stateAfter });
+
+    await context.db
+        .insert(projectLifecycleEvent)
+        .values({
+            id: eventId(context.chain.id, event.transaction.hash, event.log.logIndex),
+            chainId: context.chain.id,
+            projectId: pid,
+            kind: "COMPLETED",
+            stateAfter,
+            txFrom: event.transaction.from,
+            blockNumber: event.block.number,
+            timestamp: event.block.timestamp,
+            txHash: event.transaction.hash,
+        })
+        .onConflictDoNothing();
 });
 
 ponder.on("MilestoneEscrow:MilestoneFailed", async ({ event, context }) => {
@@ -338,10 +393,27 @@ ponder.on("MilestoneEscrow:ProjectCancelled", async ({ event, context }) => {
     const proj = await context.db.find(project, { id: pid });
     if (!proj) return;
 
+    const stateAfter = advance(proj.state, "CANCELLED");
     await context.db.update(project, { id: pid }).set({
-        state: advance(proj.state, "CANCELLED"),
+        state: stateAfter,
         cancelledAt: event.block.timestamp,
     });
+
+    await context.db
+        .insert(projectLifecycleEvent)
+        .values({
+            id: eventId(context.chain.id, event.transaction.hash, event.log.logIndex),
+            chainId: context.chain.id,
+            projectId: pid,
+            kind: "CANCELLED",
+            reason: event.args.reason,
+            stateAfter,
+            txFrom: event.transaction.from,
+            blockNumber: event.block.number,
+            timestamp: event.block.timestamp,
+            txHash: event.transaction.hash,
+        })
+        .onConflictDoNothing();
 });
 
 ponder.on("MilestoneEscrow:EmergencyShutdownTriggered", async ({ event, context }) => {
@@ -350,11 +422,85 @@ ponder.on("MilestoneEscrow:EmergencyShutdownTriggered", async ({ event, context 
     if (!proj) return;
 
     // A shut-down completed project stays COMPLETED (enforced by nextLifecycleState).
+    const stateAfter = advance(proj.state, "SHUTDOWN");
     await context.db.update(project, { id: pid }).set({
         isInvalidated: true,
         shutdownAt: event.block.timestamp,
-        state: advance(proj.state, "SHUTDOWN"),
+        state: stateAfter,
     });
+
+    await context.db
+        .insert(projectLifecycleEvent)
+        .values({
+            id: eventId(context.chain.id, event.transaction.hash, event.log.logIndex),
+            chainId: context.chain.id,
+            projectId: pid,
+            kind: "SHUTDOWN",
+            extractedEth: event.args.extractedETH,
+            burnedTokens: event.args.burnedTokens,
+            stateAfter,
+            txFrom: event.transaction.from,
+            blockNumber: event.block.number,
+            timestamp: event.block.timestamp,
+            txHash: event.transaction.hash,
+        })
+        .onConflictDoNothing();
+});
+
+ponder.on("MilestoneEscrow:DeveloperTransferProposed", async ({ event, context }) => {
+    const chainId = context.chain.id;
+    const pid = projectId(chainId, event.log.address);
+    const proj = await context.db.find(project, { id: pid });
+    if (!proj) return;
+
+    // Proposal only: project.developer changes on acceptance.
+    await context.db
+        .insert(developerChange)
+        .values({
+            id: eventId(chainId, event.transaction.hash, event.log.logIndex),
+            chainId,
+            projectId: pid,
+            kind: "proposed",
+            oldDeveloper: event.args.oldDeveloper,
+            newDeveloper: event.args.newDeveloper,
+            txFrom: event.transaction.from, // the developer or the Guardian
+            blockNumber: event.block.number,
+            timestamp: event.block.timestamp,
+            txHash: event.transaction.hash,
+        })
+        .onConflictDoNothing();
+});
+
+ponder.on("MilestoneEscrow:DeveloperTransferAccepted", async ({ event, context }) => {
+    const chainId = context.chain.id;
+    const pid = projectId(chainId, event.log.address);
+    const proj = await context.db.find(project, { id: pid });
+    if (!proj) return;
+
+    const mapping = await context.db.find(tokenMap, { id: tokenKey(chainId, proj.tokenAddress) });
+    if (!mapping) return;
+
+    await context.db
+        .insert(developerChange)
+        .values({
+            id: eventId(chainId, event.transaction.hash, event.log.logIndex),
+            chainId,
+            projectId: pid,
+            kind: "accepted",
+            oldDeveloper: event.args.oldDeveloper,
+            newDeveloper: event.args.newDeveloper,
+            txFrom: event.transaction.from,
+            blockNumber: event.block.number,
+            timestamp: event.block.timestamp,
+            txHash: event.transaction.hash,
+        })
+        .onConflictDoNothing();
+
+    await context.db.update(project, { id: pid }).set({ developer: event.args.newDeveloper });
+    // ProjectToken:Transfer reads token_map.developer to recognise vesting transfers.
+    await context.db
+        .update(tokenMap, { id: mapping.id })
+        .set({ developer: event.args.newDeveloper });
 });
 
 ponder.on("ProjectToken:TokenInvalidated", async ({ context, event }) => {
@@ -364,6 +510,21 @@ ponder.on("ProjectToken:TokenInvalidated", async ({ context, event }) => {
     if (!mapping) return;
 
     await context.db.update(project, { id: mapping.projectId }).set({ isInvalidated: true });
+
+    await context.db
+        .insert(projectLifecycleEvent)
+        .values({
+            id: eventId(context.chain.id, event.transaction.hash, event.log.logIndex),
+            chainId: context.chain.id,
+            projectId: mapping.projectId,
+            kind: "TOKEN_INVALIDATED",
+            stateAfter: null, // this event does not change project.state
+            txFrom: event.transaction.from,
+            blockNumber: event.block.number,
+            timestamp: event.block.timestamp,
+            txHash: event.transaction.hash,
+        })
+        .onConflictDoNothing();
 });
 
 // ============================================================================

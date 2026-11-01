@@ -301,3 +301,78 @@ export const tokenMap = onchainTable(
     chainIdIdx: index().on(table.chainId),
   }),
 );
+
+// 13. Developer transfer history (propose / accept). Proposals may come from the
+// developer or the Guardian; txFrom shows which.
+export const developerChange = onchainTable(
+  "developer_change",
+  (t) => ({
+    id: t.text().primaryKey(), // eventId(chainId, txHash, logIndex)
+    chainId: t.integer().notNull(),
+    projectId: t.text().notNull(), // project.id
+    kind: t.text().notNull(), // 'proposed' | 'accepted'
+    oldDeveloper: t.hex().notNull(),
+    newDeveloper: t.hex().notNull(),
+    txFrom: t.hex().notNull(),
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+    projectIdx: index().on(table.projectId),
+    newDeveloperIdx: index().on(table.newDeveloper),
+  }),
+);
+
+// 14. Lifecycle event history per project (one row per lifecycle event).
+export const projectLifecycleEvent = onchainTable(
+  "project_lifecycle_event",
+  (t) => ({
+    id: t.text().primaryKey(), // eventId(chainId, txHash, logIndex)
+    chainId: t.integer().notNull(),
+    projectId: t.text().notNull(), // project.id
+    // 'COMPLETED' | 'CANCELLED' | 'FEE_COLLECTED' | 'SHUTDOWN' | 'TOKEN_INVALIDATED'
+    kind: t.text().notNull(),
+    reason: t.text(), // CANCELLED only
+    feeAmount: t.bigint(), // FEE_COLLECTED only
+    raisedAtClose: t.bigint(), // FEE_COLLECTED only
+    extractedEth: t.bigint(), // SHUTDOWN only
+    burnedTokens: t.bigint(), // SHUTDOWN only
+    stateAfter: t.text(), // project.state written by the handler; null when state is untouched
+    txFrom: t.hex().notNull(),
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+    projectIdx: index().on(table.projectId),
+    projectKindIdx: index().on(table.projectId, table.kind),
+  }),
+);
+
+// 15. Launch provenance (one row per project; id equals project.id).
+export const projectLaunch = onchainTable(
+  "project_launch",
+  (t) => ({
+    id: t.text().primaryKey(), // projectId(chainId, milestoneEscrow)
+    chainId: t.integer().notNull(),
+    factoryAddress: t.hex().notNull(),
+    launcher: t.hex().notNull(), // factory msg.sender (ProjectLaunched.developer)
+    txFrom: t.hex().notNull(), // tx sender; differs for contract wallets or relayed launches
+    txHash: t.hex().notNull(),
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    logIndex: t.integer().notNull(),
+    tokenAddress: t.hex().notNull(),
+    escrowAddress: t.hex().notNull(),
+    distributorAddress: t.hex().notNull(),
+    routerAddress: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+    launcherIdx: index().on(table.launcher),
+    txFromIdx: index().on(table.txFrom),
+  }),
+);
