@@ -176,11 +176,53 @@ export const p2pListing = onchainTable(
     priceInETH: t.bigint().notNull(),
     isActive: t.boolean().notNull(),
     buyer: t.hex(), // null until the listing is filled
+    status: t.text().notNull().default("ACTIVE"), // 'ACTIVE' | 'FILLED' | 'CANCELLED'
+    // project.id resolved through token_map; null when the listed token is not a project token
+    // (createListing accepts any ERC20, such listings are still recorded).
+    projectId: t.text(),
+    createdAt: t.bigint().notNull().default(0n),
+    createdBlock: t.bigint().notNull().default(0n),
+    createdTxHash: t.hex(),
+    filledAt: t.bigint(), // null until filled
+    cancelledAt: t.bigint(), // null unless cancelled
   }),
   (table) => ({
     chainIdIdx: index().on(table.chainId),
     sellerIdx: index().on(table.seller),
     tokenIdx: index().on(table.tokenAddress),
+    projectIdx: index().on(table.projectId),
+    chainStatusIdx: index().on(table.chainId, table.status),
+  }),
+);
+
+// 5b. Completed P2P trades (one row per ListingFilled). token and amount come from the stored
+// listing because the event does not carry them; fee and proceeds are computed, not emitted.
+export const p2pTrade = onchainTable(
+  "p2p_trade",
+  (t) => ({
+    id: t.text().primaryKey(), // eventId(chainId, txHash, logIndex)
+    chainId: t.integer().notNull(),
+    listingId: t.text().notNull(), // p2p_listing.id (`${chainId}:${listingId}`)
+    projectId: t.text(), // null for non-project tokens
+    tokenAddress: t.hex().notNull(),
+    seller: t.hex().notNull(),
+    buyer: t.hex().notNull(),
+    tokenAmount: t.bigint().notNull(),
+    pricePaid: t.bigint().notNull(), // msg.value, from the event
+    protocolFee: t.bigint().notNull(), // computed: price * 100 / 10000
+    sellerProceeds: t.bigint().notNull(), // computed: price - protocolFee
+    txFrom: t.hex().notNull(),
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+    projectIdx: index().on(table.projectId),
+    projectTimeIdx: index().on(table.projectId, table.timestamp),
+    sellerIdx: index().on(table.seller),
+    buyerIdx: index().on(table.buyer),
+    listingIdx: index().on(table.listingId),
   }),
 );
 

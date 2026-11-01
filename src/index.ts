@@ -7,6 +7,7 @@ import {
     position,
     deposit,
     p2pListing,
+    p2pTrade,
     tokenMap,
     sponsoredGas,
     gasDebt,
@@ -633,6 +634,25 @@ ponder.on("DividendDistributor:YieldClaimed", async ({ event, context }) => {
 // ============================================================================
 // 4. P2P EXCHANGE EVENTS (Secondary Market)
 // ============================================================================
+// These handlers must NOT touch position.tokensHeld: the ProjectToken:Transfer handler already
+// accounts for exchange custody (seller debited on create, buyer credited on fill, seller
+// re-credited on cancel), so adjusting balances here would double count.
+// Limitation: createListing accepts any ERC20; listings of non-project tokens are still
+// recorded, with projectId null.
+
+// PROTOCOL_FEE_BPS in contracts/P2PExchange.sol fillListing: fee = msg.value * 100 / 10000.
+// The fee is not emitted, so it is recomputed here.
+const P2P_FEE_BPS = 100n;
+
+async function resolveTokenProject(
+    context: Context,
+    chainId: number,
+    token: string,
+): Promise<string | null> {
+    const mapping = await context.db.find(tokenMap, { id: tokenKey(chainId, token) });
+    return mapping ? mapping.projectId : null;
+}
+
 ponder.on("P2PExchange:ListingCreated", async ({ event, context }) => {
     const chainId = context.chain.id;
 
@@ -647,19 +667,58 @@ ponder.on("P2PExchange:ListingCreated", async ({ event, context }) => {
             priceInETH: event.args.price,
             isActive: true,
             buyer: null,
+            status: "ACTIVE",
+            projectId: await resolveTokenProject(context, chainId, event.args.token),
+            createdAt: event.block.timestamp,
+            createdBlock: event.block.number,
+            createdTxHash: event.transaction.hash,
         })
         .onConflictDoNothing();
 });
 
 ponder.on("P2PExchange:ListingFilled", async ({ event, context }) => {
-    const id = listingId(context.chain.id, event.args.listingId);
+    const chainId = context.chain.id;
+    const tradeId = eventId(chainId, event.transaction.hash, event.log.logIndex);
 
-    const existing = await context.db.find(p2pListing, { id });
-    if (!existing) return;
+    const existingTrade = await context.db.find(p2pTrade, { id: tradeId });
+    if (existingTrade) return;
+
+    const id = listingId(chainId, event.args.listingId);
+    const listing = await context.db.find(p2pListing, { id });
+    if (!listing) {
+        console.warn(`P2PExchange:ListingFilled for unknown listing ${id}; skipped`);
+        return;
+    }
+
+    const price = event.args.price;
+    const protocolFee = (price * P2P_FEE_BPS) / 10000n;
+    const resolvedProjectId =
+        listing.projectId ?? (await resolveTokenProject(context, chainId, listing.tokenAddress));
+
+    await context.db.insert(p2pTrade).values({
+        id: tradeId,
+        chainId,
+        listingId: id,
+        projectId: resolvedProjectId,
+        tokenAddress: listing.tokenAddress,
+        seller: event.args.seller,
+        buyer: event.args.buyer,
+        tokenAmount: listing.tokenAmount,
+        pricePaid: price,
+        protocolFee,
+        sellerProceeds: price - protocolFee,
+        txFrom: event.transaction.from,
+        blockNumber: event.block.number,
+        timestamp: event.block.timestamp,
+        txHash: event.transaction.hash,
+    });
 
     await context.db.update(p2pListing, { id }).set({
         isActive: false,
+        status: "FILLED",
         buyer: event.args.buyer,
+        filledAt: event.block.timestamp,
+        projectId: resolvedProjectId,
     });
 });
 
@@ -667,10 +726,12 @@ ponder.on("P2PExchange:ListingCancelled", async ({ event, context }) => {
     const id = listingId(context.chain.id, event.args.listingId);
 
     const existing = await context.db.find(p2pListing, { id });
-    if (!existing) return;
+    if (!existing || existing.status !== "ACTIVE") return;
 
     await context.db.update(p2pListing, { id }).set({
         isActive: false,
+        status: "CANCELLED",
+        cancelledAt: event.block.timestamp,
     });
 });
 
