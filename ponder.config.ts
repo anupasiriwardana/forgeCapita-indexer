@@ -31,6 +31,26 @@ if (effectiveSchema !== REQUIRED_SCHEMA) {
   );
 }
 
+// RPC list per chain: primary + optional fallback, deduplicated, empty values
+// dropped. A plain string[] is used (not viem fallback()) because Ponder's own
+// transport balances and fails over across the array, retries with backoff and
+// exposes per-host metrics. URLs may embed API keys, so errors never print them.
+function rpcList(name: string, defaultUrl: string): string[] {
+  const candidates = [process.env[name], process.env[`${name}_FALLBACK`]];
+  const urls: string[] = [];
+  for (const candidate of candidates) {
+    const value = candidate?.trim();
+    if (!value || urls.includes(value)) continue;
+    try {
+      new URL(value);
+    } catch {
+      throw new Error(`Invalid RPC URL in ${name} or ${name}_FALLBACK (value hidden).`);
+    }
+    urls.push(value);
+  }
+  return urls.length > 0 ? urls : [defaultUrl];
+}
+
 // v2 deployment start blocks (first block of the v2 contracts on each chain).
 const ARB_START_BLOCK = Number(process.env.ARB_START_BLOCK ?? 324727776);
 const BSC_START_BLOCK = Number(process.env.BSC_START_BLOCK ?? 140034644);
@@ -60,12 +80,12 @@ export default createConfig({
   chains: {
     arbitrumSepolia: {
       id: 421614,
-      rpc: process.env.PONDER_RPC_URL_421614 || "https://sepolia-rollup.arbitrum.io/rpc",
+      rpc: rpcList("PONDER_RPC_URL_421614", "https://sepolia-rollup.arbitrum.io/rpc"),
       ethGetLogsBlockRange: 5000,
     },
     bscTestnet: {
       id: 97,
-      rpc: process.env.PONDER_RPC_URL_97 || "https://data-seed-prebsc-1-s1.binance.org:8545",
+      rpc: rpcList("PONDER_RPC_URL_97", "https://data-seed-prebsc-1-s1.binance.org:8545"),
       maxRequestsPerSecond: 3,
       ethGetLogsBlockRange: 2000,
     },
