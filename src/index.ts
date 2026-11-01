@@ -18,6 +18,11 @@ import {
     developerChange,
     projectLifecycleEvent,
     projectLaunch,
+    routerMap,
+    revenueRecord,
+    routerClaim,
+    projectRevenue,
+    projectRevenueMonth,
 } from "../ponder.schema";
 import {
     projectId,
@@ -29,6 +34,9 @@ import {
     eventId,
     tokenKey,
     relayerKey,
+    routerKey,
+    revenueMonthId,
+    monthKey,
 } from "./ids";
 import { nextLifecycleState, projectedVotingEnd } from "./projectState";
 import type { LifecycleEvent, LifecycleState } from "./projectState";
@@ -115,6 +123,17 @@ ponder.on("ForgeCapitaFactory:ProjectLaunched", async ({ event, context }) => {
             chainId,
             projectId: id,
             escrowAddress: event.args.milestoneEscrow,
+        })
+        .onConflictDoNothing();
+
+    await context.db
+        .insert(routerMap)
+        .values({
+            id: routerKey(chainId, event.args.revenueRouter),
+            chainId,
+            projectId: id,
+            escrowAddress: event.args.milestoneEscrow,
+            routerAddress: event.args.revenueRouter,
         })
         .onConflictDoNothing();
 
@@ -1003,4 +1022,143 @@ ponder.on("ProjectToken:Transfer", async ({ event, context }) => {
             }));
         }
     }
+});
+
+// ============================================================================
+// 6. REVENUE ROUTER EVENTS (Payments & Claims)
+// Events carry no project: resolve it from router address + chain.
+// Aggregates are additive and rely on Ponder's indexed-once guarantee; the
+// find-then-insert on the event row keeps a replayed event from counting twice.
+// ============================================================================
+ponder.on("RevenueRouter:PaymentReceived", async ({ event, context }) => {
+    const chainId = context.chain.id;
+    const mapping = await context.db.find(routerMap, {
+        id: routerKey(chainId, event.log.address),
+    });
+    if (!mapping) return;
+
+    const proj = await context.db.find(project, { id: mapping.projectId });
+    if (!proj) return;
+
+    const recordId = eventId(chainId, event.transaction.hash, event.log.logIndex);
+    if (await context.db.find(revenueRecord, { id: recordId })) return;
+
+    // When nobody is staked the router keeps investorCut as creator pending funds,
+    // although the event still reports the nominal amount.
+    const routedToStakers = proj.totalStaked > 0n;
+    const { amountPaid, creatorCut, investorCut, platformFee } = event.args;
+
+    await context.db.insert(revenueRecord).values({
+        id: recordId,
+        chainId,
+        routerAddress: event.log.address,
+        projectId: proj.id,
+        payer: event.args.customer,
+        txFrom: event.transaction.from,
+        gross: amountPaid,
+        creatorCut,
+        investorCut,
+        platformFee,
+        routedToStakers,
+        blockNumber: event.block.number,
+        timestamp: event.block.timestamp,
+        txHash: event.transaction.hash,
+    });
+
+    const toStakers = routedToStakers ? investorCut : 0n;
+    const redirected = routedToStakers ? 0n : investorCut;
+
+    await context.db
+        .insert(projectRevenue)
+        .values({
+            id: proj.id,
+            chainId,
+            paymentCount: 1,
+            totalGross: amountPaid,
+            totalCreatorCut: creatorCut,
+            totalInvestorCut: investorCut,
+            totalToStakers: toStakers,
+            totalRedirectedToCreator: redirected,
+            totalPlatformFee: platformFee,
+            lastPaymentAt: event.block.timestamp,
+        })
+        .onConflictDoUpdate((row) => ({
+            paymentCount: row.paymentCount + 1,
+            totalGross: row.totalGross + amountPaid,
+            totalCreatorCut: row.totalCreatorCut + creatorCut,
+            totalInvestorCut: row.totalInvestorCut + investorCut,
+            totalToStakers: row.totalToStakers + toStakers,
+            totalRedirectedToCreator: row.totalRedirectedToCreator + redirected,
+            totalPlatformFee: row.totalPlatformFee + platformFee,
+            lastPaymentAt: event.block.timestamp,
+        }));
+
+    const month = monthKey(event.block.timestamp);
+    await context.db
+        .insert(projectRevenueMonth)
+        .values({
+            id: revenueMonthId(proj.id, month),
+            chainId,
+            projectId: proj.id,
+            month,
+            paymentCount: 1,
+            gross: amountPaid,
+            creatorCut,
+            investorCut,
+            platformFee,
+        })
+        .onConflictDoUpdate((row) => ({
+            paymentCount: row.paymentCount + 1,
+            gross: row.gross + amountPaid,
+            creatorCut: row.creatorCut + creatorCut,
+            investorCut: row.investorCut + investorCut,
+            platformFee: row.platformFee + platformFee,
+        }));
+});
+
+ponder.on("RevenueRouter:FundsClaimed", async ({ event, context }) => {
+    const chainId = context.chain.id;
+    const mapping = await context.db.find(routerMap, {
+        id: routerKey(chainId, event.log.address),
+    });
+    if (!mapping) return;
+
+    const proj = await context.db.find(project, { id: mapping.projectId });
+    if (!proj) return;
+
+    const claimId = eventId(chainId, event.transaction.hash, event.log.logIndex);
+    if (await context.db.find(routerClaim, { id: claimId })) return;
+
+    // The event does not say which claim it was. A claim by the project's current
+    // developer is a creator claim; anything else can only be the treasury.
+    const isCreator = event.args.claimant.toLowerCase() === proj.developer.toLowerCase();
+    const kind = isCreator ? "CREATOR" : "TREASURY";
+    const { amount } = event.args;
+
+    await context.db.insert(routerClaim).values({
+        id: claimId,
+        chainId,
+        routerAddress: event.log.address,
+        projectId: proj.id,
+        claimant: event.args.claimant,
+        amount,
+        kind,
+        txFrom: event.transaction.from,
+        blockNumber: event.block.number,
+        timestamp: event.block.timestamp,
+        txHash: event.transaction.hash,
+    });
+
+    await context.db
+        .insert(projectRevenue)
+        .values({
+            id: proj.id,
+            chainId,
+            totalCreatorClaimed: isCreator ? amount : 0n,
+            totalTreasuryClaimed: isCreator ? 0n : amount,
+        })
+        .onConflictDoUpdate((row) => ({
+            totalCreatorClaimed: row.totalCreatorClaimed + (isCreator ? amount : 0n),
+            totalTreasuryClaimed: row.totalTreasuryClaimed + (isCreator ? 0n : amount),
+        }));
 });

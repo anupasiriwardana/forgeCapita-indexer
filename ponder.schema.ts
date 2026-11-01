@@ -54,6 +54,21 @@ export const distributorMap = onchainTable(
   }),
 );
 
+// Resolves a RevenueRouter (its events carry no project) to its project.
+export const routerMap = onchainTable(
+  "router_map",
+  (t) => ({
+    id: t.text().primaryKey(), // routerKey(chainId, routerAddress)
+    chainId: t.integer().notNull(),
+    projectId: t.text().notNull(), // project.id
+    escrowAddress: t.hex().notNull(),
+    routerAddress: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+  }),
+);
+
 // 2. Project Milestones
 export const milestone = onchainTable(
   "milestone",
@@ -374,5 +389,104 @@ export const projectLaunch = onchainTable(
     chainIdIdx: index().on(table.chainId),
     launcherIdx: index().on(table.launcher),
     txFromIdx: index().on(table.txFrom),
+  }),
+);
+
+// 16. Revenue payments (one row per RevenueRouter PaymentReceived). Raw wei only.
+export const revenueRecord = onchainTable(
+  "revenue_record",
+  (t) => ({
+    id: t.text().primaryKey(), // eventId(chainId, txHash, logIndex)
+    chainId: t.integer().notNull(),
+    routerAddress: t.hex().notNull(),
+    projectId: t.text().notNull(), // project.id
+    payer: t.hex().notNull(), // PaymentReceived.customer
+    txFrom: t.hex().notNull(),
+    gross: t.bigint().notNull(), // amountPaid
+    creatorCut: t.bigint().notNull(), // 24%
+    investorCut: t.bigint().notNull(), // nominal 75%, as reported by the event
+    platformFee: t.bigint().notNull(), // the Treasury's 1%
+    // True when project.totalStaked > 0 at event time (investorCut went to the distributor).
+    // False: the router added investorCut to creatorPendingFunds instead, although the
+    // event still reports the nominal investorCut.
+    routedToStakers: t.boolean().notNull(),
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+    projectIdx: index().on(table.projectId),
+    projectTimeIdx: index().on(table.projectId, table.timestamp),
+    payerIdx: index().on(table.payer),
+  }),
+);
+
+// 17. Router claims (one row per FundsClaimed). The event does not say which kind of
+// claim it was, so kind is derived: CREATOR when claimant equals the project's current
+// developer (project.developer follows DeveloperTransferAccepted), otherwise TREASURY.
+// UNKNOWN is reserved for when neither can be established. Limitation: a treasury address
+// equal to the developer cannot be told apart and is recorded as CREATOR.
+export const routerClaim = onchainTable(
+  "router_claim",
+  (t) => ({
+    id: t.text().primaryKey(), // eventId(chainId, txHash, logIndex)
+    chainId: t.integer().notNull(),
+    routerAddress: t.hex().notNull(),
+    projectId: t.text().notNull(), // project.id
+    claimant: t.hex().notNull(),
+    amount: t.bigint().notNull(),
+    kind: t.text().notNull(), // CREATOR | TREASURY | UNKNOWN
+    txFrom: t.hex().notNull(),
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+    projectIdx: index().on(table.projectId),
+    claimantIdx: index().on(table.claimant),
+  }),
+);
+
+// 18. Running revenue totals per project (id equals project.id), created on first use.
+export const projectRevenue = onchainTable(
+  "project_revenue",
+  (t) => ({
+    id: t.text().primaryKey(), // project.id
+    chainId: t.integer().notNull(),
+    paymentCount: t.integer().notNull().default(0),
+    totalGross: t.bigint().notNull().default(0n),
+    totalCreatorCut: t.bigint().notNull().default(0n),
+    totalInvestorCut: t.bigint().notNull().default(0n), // nominal
+    totalToStakers: t.bigint().notNull().default(0n), // investorCut where routedToStakers
+    totalRedirectedToCreator: t.bigint().notNull().default(0n), // investorCut where not
+    totalPlatformFee: t.bigint().notNull().default(0n),
+    totalCreatorClaimed: t.bigint().notNull().default(0n),
+    totalTreasuryClaimed: t.bigint().notNull().default(0n),
+    lastPaymentAt: t.bigint(),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+  }),
+);
+
+// 19. UTC-month revenue rollup (raw wei) for reconciliation (API-50).
+export const projectRevenueMonth = onchainTable(
+  "project_revenue_month",
+  (t) => ({
+    id: t.text().primaryKey(), // `${projectId}:${YYYY-MM}`
+    chainId: t.integer().notNull(),
+    projectId: t.text().notNull(),
+    month: t.text().notNull(), // YYYY-MM, UTC
+    paymentCount: t.integer().notNull().default(0),
+    gross: t.bigint().notNull().default(0n),
+    creatorCut: t.bigint().notNull().default(0n),
+    investorCut: t.bigint().notNull().default(0n),
+    platformFee: t.bigint().notNull().default(0n),
+  }),
+  (table) => ({
+    chainIdIdx: index().on(table.chainId),
+    projectMonthIdx: index().on(table.projectId, table.month),
   }),
 );
