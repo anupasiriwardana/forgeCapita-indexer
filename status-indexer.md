@@ -5,9 +5,9 @@
 **Database:** Neon PostgreSQL (Shared with `forgecapita-api`)  
 **Networks:** Arbitrum Sepolia (Chain ID `421614`) & BSC Testnet (Chain ID `97`)  
 **Port:** 42069  
-**Last Updated:** 2026-11-01  
+**Last Updated:** 2026-11-02  
 
-**Current focus:** Step: none (WS-02.7b reviewed and committed) | State: idle | Updated: 2026-11-01. All indexer changes WS-02.2 to WS-02.7b are reviewed and committed by the user. Next suggested: WS-05.4a (testnet smoke-test scripts, contracts repo, user-run; proposed, not started) to unlock IDX-41 Phase B; WS-02.8 (IDX-11) remains an alternative. IDX-34 (CORS at a proxy, introspection depth), IDX-54 (README runbook) and IDX-41 (Phase B) stay open.
+**Current focus:** Step: none (idle; proposed WS-02.9 / IDX-55 not started) | State: idle | Updated: 2026-11-02. DEFECT IDX-55 (high priority): the indexer crashes on the first smoke-test project launch because block-pinned `readContract` calls fail on public non-archive RPCs; see Critical Issues F. Earlier focus text follows (history): Step: none (WS-02.7b reviewed and committed) | State: idle | Updated: 2026-11-01. All indexer changes WS-02.2 to WS-02.7b are reviewed and committed by the user. Next suggested: WS-05.4a (testnet smoke-test scripts, contracts repo, user-run; proposed, not started) to unlock IDX-41 Phase B; WS-02.8 (IDX-11) remains an alternative. IDX-34 (CORS at a proxy, introspection depth), IDX-54 (README runbook) and IDX-41 (Phase B) stay open.
 
 **Update 2026-11-01 (user-reported, not verified by Claude):** the pooled-connection issue is RESOLVED. After switching the indexer to the direct (non-pooled) Neon connection, `/ready` returns an empty 200 (blank page, correct) and `/status` returns JSON for both chains (bscTestnet id 97 at block 140169841, arbitrumSepolia id 421614 at block 324954798). The pooled-connection diagnosis is treated as confirmed by the fix working (exact change not stated). IDX-22 and IDX-33 are runtime-verified (`/health`, `/ready`, `/status`). The OPEN item (2) in the Phase A paragraph below is closed.
 
@@ -90,6 +90,12 @@ The core indexing pipeline, multi-chain configuration, start-block pinning, stak
   - `MilestoneEscrow:RefundClaimed`: Refund withdrawals are unrecorded.
 - **Impact:** Frontend and API will show outdated developer ownership and indicate cancelled or shut-down projects as still active.
 
+### F. Crash on block-pinned reads (IDX-55) - OPEN, HIGH PRIORITY (2026-11-02, user-pasted log)
+- **Status:** **BLOCKS IDX-41 PHASE B** ⛔
+- **Problem:** `ForgeCapitaFactory:ProjectLaunched` on arbitrumSepolia at block 325053149 fails ("Error while processing event"): `context.client.readContract` `fundingGoal()` pinned to the event block returns "historical state ... is not available" from the public RPC `https://sepolia-rollup.arbitrum.io/rpc` (retried 10 times; the block was only about 39 blocks behind head). The handlers pin reads to the event block in `src/index.ts` lines 88-94 (`fundingGoal`, `fundingDeadline`, `CLOSE_GRACE`, `REFUND_WINDOW`, `VOTING_PERIOD`, token `name`/`symbol`), 234-236 (VotingStarted: `milestones(i)`, `frozenAtVoteStart(i)`, `votingEndTime(i)`) and 328 (PlatformFeeCollected: `totalRaised`). BSC publicnode will hit the same limit for older blocks and for any backfill (flagged earlier as WS-02.3 finding 7).
+- **Impact:** Ponder treats a handler error as fatal in live mode, so none of the smoke-test events (4 projects per chain, blocks listed in IDX-41) are indexed.
+- **Remedies:** (1) `[USER-ACTION]` archive-capable RPC for both chains (`PONDER_RPC_URL_421614`, `PONDER_RPC_URL_97`; the log suggests the default public URL is in use, not verified). (2) Proposed step WS-02.9: latest-block fallback for the immutable values, compute `votingEndTime` instead of reading it; document the determinism trade-off. User decision pending.
+
 ### E. Identical Factory Addresses in `.env.local`
 - **Status:** **CONFIGURATION CHECK REQUIRED** ⚠️
 - **Problem:**
@@ -121,6 +127,8 @@ The backlog was rewritten (`backlog-indexer.md`). Contracts v2 will be redeploye
 4. [ ] (IDX-10 part 2 and WS-02.3 done) [x] WS-02.4 done (IDX-07, IDX-08, awaiting review); [x] WS-02.5 done (IDX-09, awaiting review); next WS-02.6 (IDX-06 P2P trades), then first full sync (fresh `ponder` schema; IDX-21 env part done, user-reported).
 
 ## Change log
+
+2026-11-02  IDX-55 / IDX-41 (docs only)  New high-priority defect IDX-55: indexer crashes in ProjectLaunched (Arbitrum block 325053149) because block-pinned `readContract` fails on the public non-archive RPC ("historical state ... is not available"); remedies recorded (archive RPC as USER-ACTION; proposed WS-02.9 latest-block fallback for immutable values and computed `votingEndTime`). IDX-41 Phase B note: the smoke-test events now exist on both chains (launch blocks Arbitrum 325053149 / 325053158 / 325053167 / 325060241, BSC 140234526 / 140234532 / 140234544 / 140238513) but cannot be indexed until IDX-55 is fixed.  - verified by: user-pasted log (user-reported) and reading `src/index.ts` (the pinned `readContract` calls at lines 88-94, 234-236, 328 exist); indexer not run by Claude, `.env*` not read
 
 2026-11-01  WS-02.7b / IDX-22 / IDX-33 (docs only)  User switched the indexer to the direct Neon connection: `/ready` empty 200, `/status` JSON (bscTestnet 97 at block 140169841, arbitrumSepolia 421614 at block 324954798); pooled diagnosis treated as confirmed. IDX-22 and IDX-33 notes updated as runtime-verified. User reviewed and committed all indexer changes WS-02.2 to WS-02.7b (incl. start-block fix and `.env.example` warning); WS-02.7b marked reviewed/committed, Current focus set to idle. IDX-54 and IDX-41 stay open.  - verified by: user report only, not verified (indexer not run by Claude, `.env.local` unreadable)
 
