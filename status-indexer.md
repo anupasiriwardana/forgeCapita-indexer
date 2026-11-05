@@ -132,7 +132,12 @@ The backlog was rewritten (`backlog-indexer.md`). Contracts v2 will be redeploye
 
 5. [x] IDX-55 (2026-11-05): part 2 code hardening committed; part 1 archive RPC evidenced by the first real sync; fallback unexercised. [ ] IDX-41 Phase B PARTIAL: counts and `/stats/overview` verified; TODO per-endpoint checks (positions, revenue, gas-ledger) and replay/idempotency (restart without wiping keeps counts; wipe `ponder` schema and re-sync gives identical counts); [ ] IDX-56 (raised 2026-11-05: blocks Phase B completion) free-tier `eth_getLogs` 10-block cap shrinks the range chain-wide and backfill cannot catch up (user: remove Alchemy from the pool, recreate the container); [ ] IDX-57 (low-medium) startup robustness against a flaky public RPC (fatal `eth_chainId` failure); [ ] IDX-58 (low) README/ops RPC pool rules; [ ] IDX-40 tests for `chainReads.ts`.
 
+## Note: Ponder's RPC cache schema (user-reported 2026-11-05)
+The shared Neon database holds the schema `ponder_rpc_cache_1`, Ponder's RPC cache (named by Ponder; earlier notes called it `ponder_sync`). Never drop it casually: dropping it forces a full RPC re-download (slow on free tiers, see IDX-56). The reset advice `DROP SCHEMA ponder CASCADE` does NOT touch it. Other schemas in the database: `public` (empty), `app` (API), `ponder` (indexer data).
+
 ## Change log
+
+2026-11-05  docs  recorded `ponder_rpc_cache_1` note (docs only)  - verified by: user report, not verified by Claude
 
 2026-11-05  IDX-56/58 (docs-only)  UPDATE 5 recorded: BSC backfill slowed again (44.0% -> 51.0%, then about 650 blocks/min); Infura BSC returned 3929 HTTP 402 in 30 min and Ponder does not deactivate a host on 402, so it throttles the chain; remedy (remove Infura from the BSC pool, check Infura quota) is a USER-ACTION; new pool rule IDX-58 (l) and a low-priority monitoring idea; IDX-41 Phase B stays partial  - verified by: not verified (main-session log read, user-reported)
 
