@@ -99,8 +99,13 @@ export default createConfig({
     bscTestnet: {
       id: 97,
       rpc: rpcList("PONDER_RPC_URL_97", "https://data-seed-prebsc-1-s1.binance.org:8545"),
-      maxRequestsPerSecond: 3,
-      ethGetLogsBlockRange: 2000,
+      // 1: the free Infura plan allows roughly 500 credits per second and an eth_getLogs call costs about
+      // 255, so about 2 calls per second sustained (measured: a burst of 20 gave 14 ok and then 429).
+      // 1 request per second with 1000-block ranges is still far faster than the chain produces blocks.
+      maxRequestsPerSecond: 1,
+      // 1000: the Infura BSC Testnet endpoint rejects eth_getLogs ranges above 1000 blocks
+      // ("Exceeded max range limit for eth_getLogs: 1000"); smaller is always accepted by the others.
+      ethGetLogsBlockRange: 1000,
     },
   },
   contracts: {
