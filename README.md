@@ -44,6 +44,18 @@ Read-only GET routes mounted after the GraphQL middleware. Not to be confused wi
 
 Each chain takes `PONDER_RPC_URL_<chainId>` plus an optional `PONDER_RPC_URL_<chainId>_FALLBACK`, deduplicated into an array; with neither set the public default is used. Invalid URLs fail fast at startup with a message that does not print the value. Ponder load-balances across the array per host, retries failed requests up to 9 times with exponential backoff (125 ms base), and deactivates a rate-limited (429) or timed-out host temporarily with backoff reactivation. A startup diagnostic only warns if the endpoint reports a different chain id than configured.
 
+## Historical state and fallback reads
+
+Public RPCs prune old state and reject `eth_call` at past blocks ("historical state ... is not available"), which crashed the indexer (IDX-55). Handlers read contract state pinned to the event block; `src/chainReads.ts` adds a narrow fallback: when a pinned read fails with a pruned-state error (and only then), the same read is repeated once at the latest block (`cache: "immutable"`, Ponder's way to read unpinned). Any other error is rethrown unchanged.
+
+- Fallback is allowed only for values that never change: `fundingGoal`, `fundingDeadline`, `CLOSE_GRACE`, `REFUND_WINDOW`, `VOTING_PERIOD`, token `name` and `symbol` (ProjectLaunched); `milestones(i)` description and unlockPercentage, `frozenAtVoteStart(i)` (VotingStarted); `totalRaised`, which is written once in `closeFundingAndStart` just before PlatformFeeCollected. Mutable values (balances, votes, totalStaked, votingEndTime after a freeze) must never use it.
+- `votingEndTime` is no longer read from the contract: VotingStarted computes `start + votingPeriod` from the stored project row (falling back to a read of `VOTING_PERIOD` only if the row is missing), and freeze events keep updating it locally.
+- Determinism trade-off: Ponder stores the unpinned result in its RPC cache (`ponder_sync`). A re-sync that keeps the cache re-reads the same value; a wiped cache re-reads live. The values are immutable, so the result is identical.
+- An archive or historical-state-capable RPC (IDX-55 part 1) remains the real fix for backfills and must stay configured on both chains.
+- Ponder logs the raw error before the fallback runs ("Failed 'context.client' action" warning). This is expected and harmless, cannot be suppressed, and may contain the RPC URL: treat the log as sensitive and never paste it.
+- Ops: every fallback logs one `[chainReads] pinned read unavailable, using latest ...` warning (deduplicated per chain and function, with the URL stripped). If these keep appearing on a fresh sync, the archive RPC is not in use; check the configured URLs without pasting them.
+- Cases for IDX-40 (pure, exported functions): `isHistoricalStateError` true for "historical state ... is not available" (also inside a nested `cause`) and "missing trie node"; false for "execution reverted", "returned no data", timeout, rate limit and a plain Error. `sanitizeReadErrorMessage` removes the URL, collapses whitespace and truncates.
+
 ## Production runbook
 
 - Production runs `npm run start` (`ponder start --schema ponder --views-schema ponder_live`), never `dev`. `dev` has no views support and stays `ponder dev --schema ponder`.

@@ -39,6 +39,8 @@ import {
     revenueMonthId,
     monthKey,
 } from "./ids";
+import { withLatestFallback } from "./chainReads";
+import type { ReadLabel } from "./chainReads";
 import { nextLifecycleState, projectedVotingEnd } from "./projectState";
 import type { LifecycleEvent, LifecycleState } from "./projectState";
 import { MilestoneEscrowAbi } from "../abis/MilestoneEscrowAbi";
@@ -72,26 +74,71 @@ ponder.on("ForgeCapitaFactory:ProjectLaunched", async ({ event, context }) => {
     const id = projectId(chainId, event.args.milestoneEscrow);
 
     // The clone is initialised in the launch tx, so state reads at this block are valid.
-    // Errors propagate so Ponder retries; no fallback values are written.
+    // All seven values never change, so each read may fall back to the latest block when
+    // the RPC cannot serve past state (src/chainReads.ts). Other errors propagate and
+    // no placeholder values are written.
     const escrowRead = {
         abi: MilestoneEscrowAbi,
         address: event.args.milestoneEscrow,
         blockNumber: event.block.number,
+    } as const;
+    const escrowLatest = {
+        abi: MilestoneEscrowAbi,
+        address: event.args.milestoneEscrow,
+        cache: "immutable",
     } as const;
     const tokenRead = {
         abi: ProjectTokenAbi,
         address: event.args.projectToken,
         blockNumber: event.block.number,
     } as const;
+    const tokenLatest = {
+        abi: ProjectTokenAbi,
+        address: event.args.projectToken,
+        cache: "immutable",
+    } as const;
+    const label = (functionName: string): ReadLabel => ({
+        event: "ProjectLaunched",
+        chainId,
+        functionName,
+    });
     const [fundingGoal, fundingDeadline, closeGrace, refundWindow, votingPeriod, tokenName, tokenSymbol] =
         await Promise.all([
-            context.client.readContract({ ...escrowRead, functionName: "fundingGoal" }),
-            context.client.readContract({ ...escrowRead, functionName: "fundingDeadline" }),
-            context.client.readContract({ ...escrowRead, functionName: "CLOSE_GRACE" }),
-            context.client.readContract({ ...escrowRead, functionName: "REFUND_WINDOW" }),
-            context.client.readContract({ ...escrowRead, functionName: "VOTING_PERIOD" }),
-            context.client.readContract({ ...tokenRead, functionName: "name" }),
-            context.client.readContract({ ...tokenRead, functionName: "symbol" }),
+            withLatestFallback(
+                label("fundingGoal"),
+                () => context.client.readContract({ ...escrowRead, functionName: "fundingGoal" }),
+                () => context.client.readContract({ ...escrowLatest, functionName: "fundingGoal" }),
+            ),
+            withLatestFallback(
+                label("fundingDeadline"),
+                () => context.client.readContract({ ...escrowRead, functionName: "fundingDeadline" }),
+                () => context.client.readContract({ ...escrowLatest, functionName: "fundingDeadline" }),
+            ),
+            withLatestFallback(
+                label("CLOSE_GRACE"),
+                () => context.client.readContract({ ...escrowRead, functionName: "CLOSE_GRACE" }),
+                () => context.client.readContract({ ...escrowLatest, functionName: "CLOSE_GRACE" }),
+            ),
+            withLatestFallback(
+                label("REFUND_WINDOW"),
+                () => context.client.readContract({ ...escrowRead, functionName: "REFUND_WINDOW" }),
+                () => context.client.readContract({ ...escrowLatest, functionName: "REFUND_WINDOW" }),
+            ),
+            withLatestFallback(
+                label("VOTING_PERIOD"),
+                () => context.client.readContract({ ...escrowRead, functionName: "VOTING_PERIOD" }),
+                () => context.client.readContract({ ...escrowLatest, functionName: "VOTING_PERIOD" }),
+            ),
+            withLatestFallback(
+                label("name"),
+                () => context.client.readContract({ ...tokenRead, functionName: "name" }),
+                () => context.client.readContract({ ...tokenLatest, functionName: "name" }),
+            ),
+            withLatestFallback(
+                label("symbol"),
+                () => context.client.readContract({ ...tokenRead, functionName: "symbol" }),
+                () => context.client.readContract({ ...tokenLatest, functionName: "symbol" }),
+            ),
         ]);
 
     await context.db
@@ -230,12 +277,49 @@ ponder.on("MilestoneEscrow:VotingStarted", async ({ event, context }) => {
         address: escrow,
         blockNumber: event.block.number,
     } as const;
-    const [milestoneTuple, frozenAtVoteStart, votingEndTime] = await Promise.all([
-        context.client.readContract({ ...read, functionName: "milestones", args: [index] }),
-        context.client.readContract({ ...read, functionName: "frozenAtVoteStart", args: [index] }),
-        context.client.readContract({ ...read, functionName: "votingEndTime", args: [index] }),
+    const latest = {
+        abi: MilestoneEscrowAbi,
+        address: escrow,
+        cache: "immutable",
+    } as const;
+    const label = (functionName: string): ReadLabel => ({
+        event: "VotingStarted",
+        chainId,
+        functionName,
+    });
+    // milestones(i) description/unlockPercentage and frozenAtVoteStart(i) are written
+    // once, so both may fall back to the latest block (src/chainReads.ts).
+    const [milestoneTuple, frozenAtVoteStart] = await Promise.all([
+        withLatestFallback(
+            label("milestones"),
+            () => context.client.readContract({ ...read, functionName: "milestones", args: [index] }),
+            () => context.client.readContract({ ...latest, functionName: "milestones", args: [index] }),
+        ),
+        withLatestFallback(
+            label("frozenAtVoteStart"),
+            () => context.client.readContract({ ...read, functionName: "frozenAtVoteStart", args: [index] }),
+            () => context.client.readContract({ ...latest, functionName: "frozenAtVoteStart", args: [index] }),
+        ),
     ]);
     const [description, unlockPercentage] = milestoneTuple;
+
+    // votingEndTime(i) = start + VOTING_PERIOD + (frozenNow - frozenAtVoteStart); at the
+    // event block frozenNow equals frozenAtVoteStart, so it is start + VOTING_PERIOD.
+    // Computed locally: the contract view is mutable after a freeze and is never read.
+    const proj = await context.db.find(project, { id: projectId(chainId, escrow) });
+    const votingPeriod =
+        proj?.votingPeriod ??
+        (await withLatestFallback(
+            label("VOTING_PERIOD"),
+            () => context.client.readContract({ ...read, functionName: "VOTING_PERIOD" }),
+            () => context.client.readContract({ ...latest, functionName: "VOTING_PERIOD" }),
+        ));
+    const votingEndTime = projectedVotingEnd(
+        event.block.timestamp,
+        votingPeriod,
+        frozenAtVoteStart,
+        frozenAtVoteStart,
+    );
 
     // onConflictDoNothing: a replay must never reset the vote tallies.
     await context.db
@@ -325,12 +409,25 @@ ponder.on("MilestoneEscrow:PlatformFeeCollected", async ({ event, context }) => 
     if (!proj) return;
 
     // closeFundingAndStart overwrites totalRaised with the contract balance (no FundingClosed event).
-    const totalRaised = await context.client.readContract({
-        abi: MilestoneEscrowAbi,
-        address: event.log.address,
-        functionName: "totalRaised",
-        blockNumber: event.block.number,
-    });
+    // totalRaised is assigned once, right before this event, so the latest value equals
+    // the event-block value and the read may fall back (src/chainReads.ts).
+    const totalRaised = await withLatestFallback(
+        { event: "PlatformFeeCollected", chainId: context.chain.id, functionName: "totalRaised" },
+        () =>
+            context.client.readContract({
+                abi: MilestoneEscrowAbi,
+                address: event.log.address,
+                functionName: "totalRaised",
+                blockNumber: event.block.number,
+            }),
+        () =>
+            context.client.readContract({
+                abi: MilestoneEscrowAbi,
+                address: event.log.address,
+                functionName: "totalRaised",
+                cache: "immutable",
+            }),
+    );
 
     const stateAfter = advance(proj.state, "FUNDING_CLOSED");
     await context.db.update(project, { id: pid }).set({
@@ -802,7 +899,8 @@ ponder.on("MilestoneEscrow:GasDebtWrittenOff", async ({ event, context }) => {
 });
 
 // Recomputes votingEndTime of the open milestone without RPC. The stored value tracks
-// freeze events only; the contract's votingEndTime(i) stays authoritative.
+// freeze events only. VotingStarted seeds it as start + votingPeriod (frozen delta 0) and
+// this applies the same formula with the new totalFrozen; the contract view is never read.
 async function refreshOpenVotingEnd(
     context: Context<"MilestoneEscrow:MilestonesFrozen" | "MilestoneEscrow:MilestonesUnfrozen">,
     escrow: `0x${string}`,
