@@ -31,15 +31,19 @@ if (effectiveSchema !== REQUIRED_SCHEMA) {
   );
 }
 
-// RPC list per chain: primary + optional fallback, deduplicated, empty values
-// dropped. A plain string[] is used (not viem fallback()) because Ponder's own
-// transport balances and fails over across the array, retries with backoff and
-// exposes per-host metrics. URLs may embed API keys, so errors never print them.
+// RPC list per chain: the primary variable plus the optional _FALLBACK variable, deduplicated,
+// empty values dropped. Each variable may hold ONE url or several separated by commas, so any
+// number of fallbacks can be configured (RPC urls contain no commas). A plain string[] is used
+// (not viem fallback()) because Ponder's own transport balances and fails over across the array,
+// retries with backoff and exposes per-host metrics. URLs may embed API keys, so errors never
+// print them.
 function rpcList(name: string, defaultUrl: string): string[] {
-  const candidates = [process.env[name], process.env[`${name}_FALLBACK`]];
+  const candidates = [process.env[name], process.env[`${name}_FALLBACK`]].flatMap((raw) =>
+    (raw ?? "").split(","),
+  );
   const urls: string[] = [];
   for (const candidate of candidates) {
-    const value = candidate?.trim();
+    const value = candidate.trim();
     if (!value || urls.includes(value)) continue;
     try {
       new URL(value);
@@ -99,10 +103,10 @@ export default createConfig({
     bscTestnet: {
       id: 97,
       rpc: rpcList("PONDER_RPC_URL_97", "https://data-seed-prebsc-1-s1.binance.org:8545"),
-      // 1: the free Infura plan allows roughly 500 credits per second and an eth_getLogs call costs about
-      // 255, so about 2 calls per second sustained (measured: a burst of 20 gave 14 ok and then 429).
-      // 1 request per second with 1000-block ranges is still far faster than the chain produces blocks.
-      maxRequestsPerSecond: 1,
+      // No maxRequestsPerSecond here: it is deprecated and ignored in Ponder 0.18 ("Handled automatically
+      // instead"). Ponder's own limiter starts at 20 requests per second per host, never goes below 3, and backs
+      // a host off for up to 5 s after a 429 or timeout, so a free tier that allows less than 3 per second
+      // (the free Infura plan: burst of 20 gave 14 ok then 429) stays throttled.
       // 1000: the Infura BSC Testnet endpoint rejects eth_getLogs ranges above 1000 blocks
       // ("Exceeded max range limit for eth_getLogs: 1000"); smaller is always accepted by the others.
       ethGetLogsBlockRange: 1000,

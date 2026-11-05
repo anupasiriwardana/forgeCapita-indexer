@@ -42,7 +42,7 @@ Read-only GET routes mounted after the GraphQL middleware. Not to be confused wi
 
 ## RPC endpoints and failover
 
-Each chain takes `PONDER_RPC_URL_<chainId>` plus an optional `PONDER_RPC_URL_<chainId>_FALLBACK`, deduplicated into an array; with neither set the public default is used. Invalid URLs fail fast at startup with a message that does not print the value. Ponder load-balances across the array per host, retries failed requests up to 9 times with exponential backoff (125 ms base), and deactivates a rate-limited (429) or timed-out host temporarily with backoff reactivation. A startup diagnostic only warns if the endpoint reports a different chain id than configured.
+Each chain takes `PONDER_RPC_URL_<chainId>` plus an optional `PONDER_RPC_URL_<chainId>_FALLBACK`, deduplicated into an array; with neither set the public default is used. Either variable may hold several URLs separated by commas, so any number of fallbacks can be configured. Only add hosts that pass a burst test (20 back-to-back 1000-block `eth_getLogs` requests): one host with a tiny range cap or an aggressive rate limit makes Ponder shrink the log range for the whole chain. After changing `.env.local`, recreate the container (`docker compose up -d --force-recreate indexer`), because Docker only reads the env file when the container is created. Invalid URLs fail fast at startup with a message that does not print the value. Ponder load-balances across the array per host, retries failed requests up to 9 times with exponential backoff (125 ms base), and deactivates a rate-limited (429) or timed-out host temporarily with backoff reactivation. A startup diagnostic only warns if the endpoint reports a different chain id than configured.
 
 ## Historical state and fallback reads
 
