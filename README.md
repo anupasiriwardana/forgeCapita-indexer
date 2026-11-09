@@ -36,7 +36,7 @@ Read-only GET routes mounted after the GraphQL middleware. Not to be confused wi
 - `limit` below 1, or non-numeric/negative `limit` or `offset`, is a 400; values above the cap are clamped (`offset` cap 10000).
 
 1. `GET /stats/overview?chainId=` returns `{ generatedAt, chains: [...] }` with one entry per chain (zeros when empty), never summed across chains because the native currencies differ (ETH on Arbitrum Sepolia, BNB on BSC Testnet). Each chain has `projectsByState`, `activeVotes`, `totalRaised`, `platformFeesCollected` (from `FEE_COLLECTED` lifecycle rows), `revenue`, `sponsoredGas` (with `byAction` 0 to 3), `gasDebt` and `p2p`. Cached in-process for 15 seconds per `chainId` filter (concurrent misses share one query, errors are never cached) and sent with `Cache-Control: public, max-age=15`. This is the only route with that header.
-2. `GET /projects/:chainId/:address/revenue` returns `totals` (zeros if no payment yet) and up to 120 `months` (newest first).
+2. `GET /projects/:chainId/:address/revenue` returns `totals` (zeros if no payment yet) and up to 120 `months` (newest first), `routerAddress` (null if not mapped) and `claims` (latest 20 creator claims, newest first).
 3. `GET /investors/:address/positions?chainId=&limit=&offset=` merges deposit and staking rows per project (missing values are `"0"`). `limit` default 50, max 100.
 4. `GET /projects/:chainId/:address/gas-ledger?limit=&offset=&action=` returns `summary` (`gasSpent` is the newest row's cumulative value, not a sum), `sponsored` rows newest first (`limit` default 50, max 200, optional `action` 0 to 3) and the latest 100 `debt` rows.
 

@@ -22,6 +22,8 @@ const {
   projectLifecycleEvent,
   projectRevenue,
   projectRevenueMonth,
+  routerMap,
+  routerClaim,
 } = schema;
 
 // Chains the indexer is configured for (ponder.config.ts): Arbitrum Sepolia, BSC Testnet.
@@ -36,6 +38,7 @@ const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const OVERVIEW_TTL_MS = 15_000;
 const MAX_REVENUE_MONTHS = 120;
 const MAX_DEBT_ROWS = 100;
+const MAX_CREATOR_CLAIMS = 20;
 const MAX_OFFSET = 10_000;
 
 class BadRequestError extends Error {}
@@ -357,7 +360,7 @@ statsRoutes.get("/projects/:chainId/:address/revenue", async (c) => {
   const id = projectId(chainId, escrowAddress);
   await requireProject(id);
 
-  const [totalsRows, monthRows] = await Promise.all([
+  const [totalsRows, monthRows, routerRows, claimRows] = await Promise.all([
     db.select().from(projectRevenue).where(eq(projectRevenue.id, id)).limit(1),
     db
       .select()
@@ -365,6 +368,17 @@ statsRoutes.get("/projects/:chainId/:address/revenue", async (c) => {
       .where(eq(projectRevenueMonth.projectId, id))
       .orderBy(desc(projectRevenueMonth.month))
       .limit(MAX_REVENUE_MONTHS),
+    db
+      .select({ routerAddress: routerMap.routerAddress })
+      .from(routerMap)
+      .where(eq(routerMap.projectId, id))
+      .limit(1),
+    db
+      .select()
+      .from(routerClaim)
+      .where(and(eq(routerClaim.projectId, id), eq(routerClaim.kind, "CREATOR")))
+      .orderBy(desc(routerClaim.timestamp), desc(routerClaim.id))
+      .limit(MAX_CREATOR_CLAIMS),
   ]);
   const t = totalsRows[0];
 
@@ -372,6 +386,13 @@ statsRoutes.get("/projects/:chainId/:address/revenue", async (c) => {
     chainId,
     projectId: id,
     escrowAddress,
+    routerAddress: routerRows[0]?.routerAddress ?? null,
+    claims: claimRows.map((r) => ({
+      amount: r.amount.toString(),
+      claimant: r.claimant,
+      txHash: r.txHash,
+      timestamp: r.timestamp.toString(),
+    })),
     totals: {
       paymentCount: t?.paymentCount ?? 0,
       totalGross: (t?.totalGross ?? 0n).toString(),
