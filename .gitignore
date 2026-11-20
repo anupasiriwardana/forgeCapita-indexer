@@ -16,3 +16,7 @@ yarn-error.log*
 # Ponder
 /generated/
 /.ponder/
+
+
+backlog-indexer.md
+status-indexer.md
